@@ -13,13 +13,13 @@ class DummyGenAIClient:
     """
 
     class _Models:
-        def generate_content(self, model: str, contents: str) -> "DummyGenAIClient._Response":
+        def generate_content(self, model: str, contents: str):
             return DummyGenAIClient._Response()
 
     class _Response:
         text: str = "I have completed the task"
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.models = self._Models()
 
 
