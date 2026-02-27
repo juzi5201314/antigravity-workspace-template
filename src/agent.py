@@ -18,7 +18,6 @@ from google import genai
 from src.config import settings
 from src.memory import MemoryManager
 from src.tools.openai_proxy import call_openai_chat
-from src.testing import is_test_environment, DummyGenAIClient
 
 
 class GeminiAgent:
@@ -74,7 +73,19 @@ class GeminiAgent:
         )
 
         if running_under_pytest:
-            self.client = DummyGenAIClient()
+
+            class _DummyClient:
+                class _Models:
+                    def generate_content(self, model, contents):
+                        class _R:
+                            text = "I have completed the task"
+
+                        return _R()
+
+                def __init__(self):
+                    self.models = self._Models()
+
+            self.client = _DummyClient()
         else:
             try:
                 # If a Google API key is provided, prefer Gemini.
@@ -94,7 +105,19 @@ class GeminiAgent:
                         raise ValueError("No GOOGLE_API_KEY or OPENAI_BASE_URL configured")
             except Exception as e:
                 print(f"⚠️ genai client not initialized: {e}")
-                self.client = DummyGenAIClient()
+
+                class _DummyClientFallback:
+                    class _Models:
+                        def generate_content(self, model, contents):
+                            class _R:
+                                text = "I have completed the task"
+
+                            return _R()
+
+                    def __init__(self):
+                        self.models = self._Models()
+
+                self.client = _DummyClientFallback()
 
     def _ensure_workspace_paths(self) -> None:
         """Create required workspace directories using anchored paths."""

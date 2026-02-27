@@ -9,7 +9,6 @@ import os
 from typing import Any, Dict, List, Optional
 from google import genai
 from src.config import settings
-from src.testing import DummyGenAIClient
 
 
 class BaseAgent:
@@ -36,14 +35,30 @@ class BaseAgent:
         running_under_pytest = "PYTEST_CURRENT_TEST" in os.environ
         if running_under_pytest:
             # Dummy client for testing
-            self.client = DummyGenAIClient()
+            class _DummyClient:
+                class _Models:
+                    def generate_content(self, model, contents):
+                        class _R:
+                            text = f"[{role}] Task completed"
+                        return _R()
+                def __init__(self):
+                    self.models = self._Models()
+            self.client = _DummyClient()
         else:
             try:
                 self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
             except Exception as e:
                 print(f"⚠️ {role} agent: genai client not initialized: {e}")
                 # Fallback to dummy client
-                self.client = DummyGenAIClient()
+                class _DummyClient:
+                    class _Models:
+                        def generate_content(self, model, contents):
+                            class _R:
+                                text = f"[{role}] Task completed"
+                            return _R()
+                    def __init__(self):
+                        self.models = self._Models()
+                self.client = _DummyClient()
     
     def execute(self, task: str, context: Optional[List[Dict[str, str]]] = None) -> str:
         """
