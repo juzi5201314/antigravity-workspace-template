@@ -41,15 +41,11 @@ So I built this project: **Antigravity Workspace Template**.
 
 ## ⚡ Quick Start
 
-### Option A: pip install (recommended)
-```bash
-pip install antigravity-agent
-antigravity init my-project
-cd my-project
-```
+### Automated Installation (Recommended)
 
-### Option B: Clone template
+**Linux / macOS:**
 ```bash
+# 1. Clone the template
 git clone https://github.com/study8677/antigravity-workspace-template.git my-project
 cd my-project
 
