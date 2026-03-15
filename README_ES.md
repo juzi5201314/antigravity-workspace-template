@@ -306,7 +306,7 @@ Consulta la [Hoja de Ruta](docs/es/ROADMAP.md) para detalles.
         <img src="https://github.com/shuofengzhang.png" width="80" /><br/>
         <b>shuofengzhang</b>
       </a><br/>
-      <sub>Fix ventana de contexto de memoria</sub>
+      <sub>Fix ventana de contexto de memoria · Manejo graceful de cierre MCP (#28)</sub>
     </td>
   </tr>
 </table>

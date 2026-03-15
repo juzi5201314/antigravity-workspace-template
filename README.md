@@ -306,7 +306,7 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
         <img src="https://github.com/shuofengzhang.png" width="80" /><br/>
         <b>shuofengzhang</b>
       </a><br/>
-      <sub>Memory context window fix</sub>
+      <sub>Memory context window fix · MCP shutdown graceful handling (#28)</sub>
     </td>
   </tr>
 </table>
