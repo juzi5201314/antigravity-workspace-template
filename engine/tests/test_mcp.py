@@ -395,3 +395,26 @@ class TestMCPToolWrapper:
         assert "test tool" in wrapper.__doc__.lower()
         assert "test" in wrapper.__doc__  # Server name
         assert "MCP" in wrapper.__doc__
+
+
+class TestMCPShutdown:
+    """Tests for MCP client shutdown behavior."""
+
+    @pytest.mark.asyncio
+    async def test_shutdown_skips_missing_context_managers(self):
+        """Shutdown should not warn when optional context managers are absent."""
+        from src.mcp_client import MCPClientManager, MCPServerConnection
+
+        manager = MCPClientManager()
+        config = MCPServerConfig(name="test", transport="stdio", command="echo")
+        manager.servers["test"] = MCPServerConnection(config=config)
+
+        with patch("builtins.print") as mock_print:
+            await manager.shutdown()
+
+        printed = "\n".join(
+            " ".join(str(arg) for arg in call.args) for call in mock_print.call_args_list
+        )
+        assert "Error disconnecting" not in printed
+        assert manager.servers == {}
+        assert manager._initialized is False

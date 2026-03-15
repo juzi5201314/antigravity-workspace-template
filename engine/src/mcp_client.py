@@ -451,9 +451,9 @@ Input Schema:
 
         for name, connection in self.servers.items():
             try:
-                if connection.session:
+                if connection.session is not None:
                     await connection.session.__aexit__(None, None, None)
-                if hasattr(connection, "_client_cm"):
+                if connection._client_cm is not None:
                     await connection._client_cm.__aexit__(None, None, None)
                 print(f"   ✓ Disconnected from {name}")
             except Exception as e:
