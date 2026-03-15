@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
 
-# Antigravity Workspace Template
+# Ai Workspace Template
 
 **Production-grade starter kit for autonomous AI agents.**
 
