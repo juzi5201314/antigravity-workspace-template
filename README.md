@@ -1,200 +1,171 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
+<img src="docs/assets/logo.png" alt="Antigravity" width="200"/>
 
-# Ai Workspace Template
+# Antigravity
 
-**Production-grade starter kit for autonomous AI agents.**
+**Make every AI IDE smarter — in one command.**
 
-*Works with any AI IDE · Any CLI · Any LLM*
+`ag init` injects a cognitive architecture into any project directory.<br/>
+`ag ask` / `ag refresh` maintain living project context via multi-agent analysis.
 
 Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Claude](https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://anthropic.com/)
-[![Gemini](https://img.shields.io/badge/Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com/)
-[![Qwen](https://img.shields.io/badge/Qwen-5A29E4?style=for-the-badge)](https://qwen.ai/)
-[![GLM](https://img.shields.io/badge/GLM-1A73E8?style=for-the-badge)](https://open.bigmodel.cn/)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-0A84FF?style=for-the-badge)](https://deepseek.com/)
-[![MiniMax](https://img.shields.io/badge/MiniMax-FF6600?style=for-the-badge)](https://minimax.chat/)
-[![Llama](https://img.shields.io/badge/Llama-0467DF?style=for-the-badge&logo=meta&logoColor=white)](https://llama.meta.com/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-Docs-blue?style=for-the-badge&logo=gitbook&logoColor=white)](https://deepwiki.com/study8677/antigravity-workspace-template)
 
 <br/>
 
-<img src="https://img.shields.io/badge/Google_Antigravity-✓-4285F4?style=flat-square" alt="Antigravity"/>
 <img src="https://img.shields.io/badge/Cursor-✓-000000?style=flat-square" alt="Cursor"/>
+<img src="https://img.shields.io/badge/Claude_Code-✓-D97757?style=flat-square" alt="Claude Code"/>
 <img src="https://img.shields.io/badge/Windsurf-✓-06B6D4?style=flat-square" alt="Windsurf"/>
+<img src="https://img.shields.io/badge/Gemini_CLI-✓-4285F4?style=flat-square" alt="Gemini CLI"/>
 <img src="https://img.shields.io/badge/VS_Code_+_Copilot-✓-007ACC?style=flat-square" alt="VS Code"/>
+<img src="https://img.shields.io/badge/Codex-✓-412991?style=flat-square" alt="Codex"/>
 <img src="https://img.shields.io/badge/Cline-✓-FF6B6B?style=flat-square" alt="Cline"/>
 <img src="https://img.shields.io/badge/Aider-✓-8B5CF6?style=flat-square" alt="Aider"/>
-<img src="https://img.shields.io/badge/Claude_Code-✓-D97757?style=flat-square" alt="Claude Code"/>
-<img src="https://img.shields.io/badge/Gemini_CLI-✓-4285F4?style=flat-square" alt="Gemini CLI"/>
-<img src="https://img.shields.io/badge/Codex-✓-412991?style=flat-square" alt="Codex"/>
 
 </div>
 
 <br/>
 
 <div align="center">
-
-### Stop letting Cursor / Windsurf hallucinate in empty folders.
-### The **Artifact-First** cognitive architecture for AI IDEs.
-
-<br/>
-
 <img src="docs/assets/before_after.png" alt="Before vs After Antigravity" width="800"/>
-
-<br/>
-
-```bash
-pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-ag init my-project
-```
-
 </div>
 
 <br/>
 
-> **`ag init` → Open IDE → Prompt. That's the workflow.**
+> **Core thesis**: An AI Agent's capability ceiling = the quality of context it can read.
 >
-> **First Principles**: An AI Agent's capability ceiling = the quality of context it can read. Instead of relying on IDE plugins or platform lock-in, go back to basics—**architecture is files**. A carefully designed set of `.cursorrules`, `CONTEXT.md`, `.antigravity/rules.md` *is* the entire cognitive architecture. `ag init` injects this into any empty directory, instantly turning your IDE from an editor into an **industry-savvy architect**—no plugins, no vendor lock-in.
+> Architecture is **files**, not plugins. `.cursorrules`, `CLAUDE.md`, `.antigravity/rules.md` — these *are* the cognitive architecture. Portable across any IDE, any LLM, zero vendor lock-in.
 
 ---
 
-## 🌍 Universal Compatibility
-
-This template is **not** tied to any specific IDE. It works everywhere:
-
-| Platform | How It Works |
-|:---------|:-------------|
-| **Google Antigravity** | Reads `.antigravity/rules.md` for full context awareness |
-| **Cursor** | Reads `.cursorrules` for project-level rules |
-| **Windsurf / VS Code + Copilot** | Uses `.context/` files for knowledge injection |
-| **Claude Code** | Reads `AGENTS.md` + `CONTEXT.md` for project conventions |
-| **Gemini CLI** | Reads `AGENTS.md` + `.context/` for knowledge injection |
-| **Codex (OpenAI)** | Reads `AGENTS.md` + directory conventions |
-| **Cline / Aider** | Leverages `CONTEXT.md` + directory conventions |
-| **Any OpenAI-compatible agent** | Auto-discovered tools in `engine/antigravity_engine/tools/`, standard Python entry |
-
-The secret: architecture is encoded in **files**, not in IDE-specific plugins. Any agent that reads project files can benefit.
-
----
-
-## ⚡ Quick Start
-
-### Option 1: Inject architecture into any project (Recommended)
+## Quick Start
 
 ```bash
-# 1. Install the CLI
+# Install CLI (lightweight, no LLM dependencies)
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
 
-# 2. Inject cognitive architecture into your project
-ag init my-project
+# Inject cognitive architecture into any project
+ag init my-project && cd my-project
 
-# 3. Open in any AI IDE and start prompting!
+# Open in Cursor / Claude Code / Windsurf / any AI IDE → start prompting
 ```
 
-### Option 2: Run the full Agent Engine
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/study8677/antigravity-workspace-template.git
-cd antigravity-workspace-template
-
-# 2. Install engine dependencies
-cd engine
-pip install -e .
-
-# 3. Configure API keys
-cp .env.example .env && nano .env
-
-# 4. Run the agent on any workspace
-ag-engine --workspace /path/to/your/project "Your task here"
-```
-
-**That's it!** The IDE auto-loads configuration and you're ready to prompt.
+That's it. Your IDE now reads `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md` automatically.
 
 ---
 
-## 🎯 What Is This?
+## CLI Commands
 
-This is **not** another LangChain wrapper. It's a minimal, transparent workspace for building AI agents that:
+| Command | What it does | LLM needed? |
+|:--------|:-------------|:-----------:|
+| `ag init <dir>` | Inject cognitive architecture templates | No |
+| `ag refresh` | Scan project, generate `.antigravity/conventions.md` | Yes |
+| `ag ask "question"` | Answer questions about the project | Yes |
+| `ag report "message"` | Log a finding to `.antigravity/memory/` | No |
+| `ag log-decision "what" "why"` | Log an architectural decision | No |
+| `ag start-engine` | Launch the full Agent Engine runtime | Yes |
 
-| Feature | Description |
-|:--------|:------------|
-| 🧠 **Infinite Memory** | Recursive summarization compresses context automatically |
-| 🧠 **True Thinking** | "Deep Think" step using Chain-of-Thought before acting |
-| 🎓 **Skills System** | Modular capabilities in `engine/antigravity_engine/skills/` with auto-loading |
-| 🛠️ **Universal Tools** | Drop Python functions in `engine/antigravity_engine/tools/` → auto-discovered |
-| 📚 **Auto Context** | Add files to `.context/` → auto-injected into prompts |
-| 🔌 **MCP Support** | Connect GitHub, databases, filesystems, custom servers |
-| 🤖 **Swarm Agents** | Multi-agent orchestration with Router-Worker pattern |
-| ⚡ **Gemini Native** | Optimized for Gemini 2.0 Flash |
-| 🌐 **LLM Agnostic** | Use OpenAI, Azure, Ollama, or any compatible API |
-| 📂 **Artifact-First** | Convention-first workflow for plans, logs, and evidence |
-| 🔒 **Sandbox** | Configurable code execution (local / microsandbox) |
-| 🔮 **Knowledge Hub** | `ag ask`, `ag refresh` — project context maintained by multi-agent system |
+All commands accept `--workspace <dir>` to target any directory.
 
 ---
 
-## 🏗️ Project Structure
+## Two Packages, One Workflow
 
 ```
 antigravity-workspace-template/
-│
-├── cli/                          # 🖥️ Lightweight CLI (ag init)
-│   ├── pyproject.toml            #    Package config & entry point
-│   └── src/ag_cli/
-│       ├── cli.py                #    CLI commands (init, ask, refresh, report, log-decision)
-│       └── templates/            #    Cognitive architecture templates
-│           ├── .cursorrules      #    → Injected into target project
-│           ├── .antigravity/     #    → Injected into target project
-│           └── CONTEXT.md        #    → Injected into target project
-│
-├── engine/                       # ⚙️ Python Agent Engine
-│   ├── agent.py                  #    Entry point (--workspace support)
-│   ├── antigravity_engine/
-│   │   ├── agent.py              #    Main agent loop (Think-Act-Reflect)
-│   │   ├── config.py             #    Settings (workspace-aware)
-│   │   ├── memory.py             #    Markdown memory manager
-│   │   ├── mcp_client.py         #    MCP integration
-│   │   ├── swarm.py              #    Multi-agent orchestration
-│   │   ├── tools/                #    Custom tools (auto-discovered)
-│   │   ├── agents/               #    Specialist agents
-│   │   ├── sandbox/              #    Code execution sandbox
-│   │   ├── skills/               #    Modular skills (auto-loaded)
-│   │   └── hub/                  #    Knowledge Hub (scanner, agents, pipeline)
-│   ├── tests/                    #    Test suite
-│   └── pyproject.toml            #    Engine dependencies
-│
-├── docs/                         # 📚 Documentation
-├── README.md                     # This file
-└── LICENSE                       # MIT
+├── cli/                     # ag CLI — lightweight, pip-installable
+│   └── templates/           # .cursorrules, CLAUDE.md, .antigravity/, ...
+└── engine/                  # Agent Engine — full runtime + Knowledge Hub
+    └── antigravity_engine/
+        ├── agent.py         # Think-Act-Reflect loop (Gemini / OpenAI / Ollama)
+        ├── hub/             # Knowledge Hub (scanner → agents → pipeline)
+        ├── tools/           # Drop a .py file → auto-discovered as a tool
+        ├── agents/          # Specialist agents (Coder, Reviewer, Researcher)
+        ├── swarm.py         # Multi-agent orchestration (Router-Worker)
+        └── sandbox/         # Code execution (local / microsandbox)
+```
+
+**CLI** (`pip install .../cli`) — Zero LLM deps. Injects templates, logs reports & decisions offline.
+
+**Engine** (`pip install .../engine`) — Full runtime. Powers `ag ask`, `ag refresh`, `ag start-engine`. Supports Gemini, OpenAI, Ollama, or any OpenAI-compatible API.
+
+```bash
+# Install both for full experience
+pip install "git+https://...#subdirectory=cli"
+pip install "git+https://...#subdirectory=engine"
 ```
 
 ---
 
-## 💡 Build a Tool in 30 Seconds
+## How It Works
+
+### 1. `ag init` — Inject context files
+
+```bash
+ag init my-project
+```
+
+Creates `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsurfrules` — each IDE reads its native config file, all pointing to the same `.antigravity/` knowledge base.
+
+### 2. `ag refresh` — Build project intelligence
+
+```bash
+ag refresh --workspace my-project
+```
+
+Scans your codebase (languages, frameworks, structure), feeds the scan to a multi-agent pipeline, writes `.antigravity/conventions.md`. Next time your IDE opens, it reads richer context.
+
+### 3. `ag ask` — Query your project
+
+```bash
+ag ask "How does auth work in this project?"
+```
+
+Reads `.antigravity/` context, feeds it to a reviewer agent, returns a grounded answer.
+
+### 4. Build tools — Zero config
 
 ```python
 # engine/antigravity_engine/tools/my_tool.py
-def analyze_sentiment(text: str) -> str:
-    """Analyzes the sentiment of given text."""
-    return "positive" if len(text) > 10 else "neutral"
+def check_api_health(url: str) -> str:
+    """Check if an API endpoint is responding."""
+    import requests
+    return "up" if requests.get(url).ok else "down"
 ```
 
-**Restart the agent.** Done! The tool is now available to any AI IDE.
+Drop a file, restart. The agent discovers it automatically via type hints + docstrings.
 
 ---
 
-## 🔌 MCP Integration
+## IDE Compatibility
 
-Connect to external tools seamlessly:
+Architecture is encoded in **files** — any agent that reads project files benefits:
+
+| IDE | Config File |
+|:----|:------------|
+| Cursor | `.cursorrules` |
+| Claude Code | `CLAUDE.md` |
+| Windsurf | `.windsurfrules` |
+| VS Code + Copilot | `.github/copilot-instructions.md` |
+| Gemini CLI / Codex | `AGENTS.md` |
+| Cline | `.clinerules` |
+| Google Antigravity | `.antigravity/rules.md` |
+
+All generated by `ag init`. All reference `.antigravity/` for shared project context.
+
+---
+
+## Advanced Features
+
+<details>
+<summary><b>MCP Integration</b> — Connect external tools (GitHub, databases, filesystems)</summary>
 
 ```json
+// mcp_servers.json
 {
   "servers": [
     {
@@ -208,94 +179,51 @@ Connect to external tools seamlessly:
 }
 ```
 
----
+Set `MCP_ENABLED=true` in `.env`. See [MCP docs](docs/en/MCP_INTEGRATION.md).
+</details>
 
-## 🤖 Multi-Agent Swarm
-
-Decompose complex tasks automatically:
+<details>
+<summary><b>Multi-Agent Swarm</b> — Router-Worker orchestration for complex tasks</summary>
 
 ```python
 from antigravity_engine.swarm import SwarmOrchestrator
 
 swarm = SwarmOrchestrator()
 result = swarm.execute("Build and review a calculator")
+# Routes to Coder → Reviewer → Researcher, synthesizes results
 ```
 
-The swarm automatically routes to Coder, Reviewer, and Researcher agents, synthesizes results, and exposes logs via `get_message_log()`.
+See [Swarm docs](docs/en/SWARM_PROTOCOL.md).
+</details>
 
----
-
-## 🔒 Sandbox Configuration
+<details>
+<summary><b>Sandbox</b> — Configurable code execution environment</summary>
 
 | Variable | Default | Options |
 |:---------|:--------|:--------|
 | `SANDBOX_TYPE` | `local` | `local` · `microsandbox` |
 | `SANDBOX_TIMEOUT_SEC` | `30` | seconds |
-| `SANDBOX_MAX_OUTPUT_KB` | `10` | KB |
 
-<details>
-<summary><b>Microsandbox extra variables</b></summary>
-
-| Variable | Default |
-|:---------|:--------|
-| `MSB_SERVER_URL` | `http://127.0.0.1:5555` |
-| `MSB_API_KEY` | (optional) |
-| `MSB_IMAGE` | `microsandbox/python` |
-| `MSB_CPU_LIMIT` | `1.0` |
-| `MSB_MEMORY_MB` | `512` |
+See [Sandbox docs](docs/en/SANDBOX.md).
 </details>
 
 ---
 
-## 🔮 Knowledge Hub
+## Documentation
 
-The Knowledge Hub maintains project context files in `.antigravity/`, making all AI IDEs smarter.
-
-```bash
-# Initialize project context
-ag init my-project && cd my-project
-
-# Scan project and generate conventions (requires LLM)
-ag refresh
-
-# Ask questions about the project (requires LLM)
-ag ask "What framework does this project use?"
-
-# Log reports and decisions (no LLM needed)
-ag report "Found auth race condition in login handler"
-ag log-decision "Use Redis for sessions" "Team already familiar"
-```
-
-All commands work with `--workspace` to target any directory.
+| | |
+|:--|:--|
+| 🇬🇧 English | **[`docs/en/`](docs/en/)** |
+| 🇨🇳 中文 | **[`docs/zh/`](docs/zh/)** |
+| 🇪🇸 Español | **[`docs/es/`](docs/es/)** |
 
 ---
 
-## 📚 Documentation
-
-| Language | Link |
-|:---------|:-----|
-| 🇬🇧 English | **[`/docs/en/`](docs/en/)** |
-| 🇨🇳 中文 | **[`/docs/zh/`](docs/zh/)** |
-| 🇪🇸 Español | **[`/docs/es/`](docs/es/)** |
-
----
-
-## ✅ Progress
-
-- ✅ Phase 1-8: Foundation, Memory, Tools, Swarm, MCP
-- ✅ Phase 9: V1.0 Monorepo Refactor — decoupled CLI + Engine architecture
-- ✅ Phase 10: Knowledge Hub — multi-agent project context system
-- 🚀 Phase 11: Automation — git hooks, file watching, migrations (coming soon)
-
-See [Roadmap](docs/en/ROADMAP.md) for details.
-
----
-
-## 🤝 Contributing
+## Contributing
 
 Ideas are contributions too! Open an [issue](https://github.com/study8677/antigravity-workspace-template/issues) to report bugs, suggest features, or propose architecture.
 
-## 👥 Contributors
+## Contributors
 
 <table>
   <tr>
@@ -337,11 +265,11 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
   </tr>
 </table>
 
-## ⭐ Star History
+## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=study8677/antigravity-workspace-template&type=Date)](https://star-history.com/#study8677/antigravity-workspace-template&Date)
 
-## 📄 License
+## License
 
 MIT License. See [LICENSE](LICENSE) for details.
 
@@ -349,8 +277,8 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[📚 Explore Full Documentation →](docs/en/)**
+**[📚 Full Documentation →](docs/en/)**
 
-*Built with ❤️ for the AI-native development era*
+*Built for the AI-native development era*
 
 </div>

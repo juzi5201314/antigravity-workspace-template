@@ -1,200 +1,171 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
+<img src="docs/assets/logo.png" alt="Antigravity" width="200"/>
 
-# Antigravity Workspace Template
+# Antigravity
 
-**用于构建自主 AI 代理的生产级入门套件。**
+**一条命令，让每个 AI IDE 更聪明。**
 
-*适用于任何 AI IDE · 任何 CLI · 任何 LLM*
+`ag init` 将认知架构注入任意项目目录。<br/>
+`ag ask` / `ag refresh` 通过多 Agent 分析维护活的项目上下文。
 
 语言: [English](README.md) | **中文** | [Español](README_ES.md)
 
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Claude](https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://anthropic.com/)
-[![Gemini](https://img.shields.io/badge/Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com/)
-[![Qwen](https://img.shields.io/badge/Qwen-5A29E4?style=for-the-badge)](https://qwen.ai/)
-[![GLM](https://img.shields.io/badge/GLM-1A73E8?style=for-the-badge)](https://open.bigmodel.cn/)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-0A84FF?style=for-the-badge)](https://deepseek.com/)
-[![MiniMax](https://img.shields.io/badge/MiniMax-FF6600?style=for-the-badge)](https://minimax.chat/)
-[![Llama](https://img.shields.io/badge/Llama-0467DF?style=for-the-badge&logo=meta&logoColor=white)](https://llama.meta.com/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-Docs-blue?style=for-the-badge&logo=gitbook&logoColor=white)](https://deepwiki.com/study8677/antigravity-workspace-template)
 
 <br/>
 
-<img src="https://img.shields.io/badge/Google_Antigravity-✓-4285F4?style=flat-square" alt="Antigravity"/>
 <img src="https://img.shields.io/badge/Cursor-✓-000000?style=flat-square" alt="Cursor"/>
+<img src="https://img.shields.io/badge/Claude_Code-✓-D97757?style=flat-square" alt="Claude Code"/>
 <img src="https://img.shields.io/badge/Windsurf-✓-06B6D4?style=flat-square" alt="Windsurf"/>
+<img src="https://img.shields.io/badge/Gemini_CLI-✓-4285F4?style=flat-square" alt="Gemini CLI"/>
 <img src="https://img.shields.io/badge/VS_Code_+_Copilot-✓-007ACC?style=flat-square" alt="VS Code"/>
+<img src="https://img.shields.io/badge/Codex-✓-412991?style=flat-square" alt="Codex"/>
 <img src="https://img.shields.io/badge/Cline-✓-FF6B6B?style=flat-square" alt="Cline"/>
 <img src="https://img.shields.io/badge/Aider-✓-8B5CF6?style=flat-square" alt="Aider"/>
-<img src="https://img.shields.io/badge/Claude_Code-✓-D97757?style=flat-square" alt="Claude Code"/>
-<img src="https://img.shields.io/badge/Gemini_CLI-✓-4285F4?style=flat-square" alt="Gemini CLI"/>
-<img src="https://img.shields.io/badge/Codex-✓-412991?style=flat-square" alt="Codex"/>
 
 </div>
 
 <br/>
 
 <div align="center">
-
-### 别让 Cursor / Windsurf 在空目录里瞎编了。
-### 给 AI IDE 注入 **Artifact-First** 认知架构。
-
-<br/>
-
 <img src="docs/assets/before_after.png" alt="Before vs After Antigravity" width="800"/>
-
-<br/>
-
-```bash
-pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-ag init my-project
-```
-
 </div>
 
 <br/>
 
-> **`ag init` → 打开 IDE → 开始提示。即是工作流。**
+> **核心论点**：AI Agent 的能力上限 = 它能读到的上下文质量。
 >
-> **第一性原理**：AI Agent 的能力上限 = 它能读到的上下文质量。与其依赖 IDE 插件或平台锁定，不如回归本质——**架构即文件**。一组精心设计的 `.cursorrules`、`CONTEXT.md`、`.antigravity/rules.md` 就是全部认知架构。`ag init` 将这套架构注入任何空目录，让你的 IDE 瞬间从编辑器变成**懂行的架构师**——不依赖任何插件，不绑定任何平台。
+> 架构即**文件**，而非插件。`.cursorrules`、`CLAUDE.md`、`.antigravity/rules.md` —— 这些就是认知架构本身。跨 IDE、跨 LLM、零平台锁定。
 
 ---
 
-## 🌍 全平台兼容
-
-本模板**不绑定**任何特定 IDE，开箱即用于所有主流 AI 开发环境：
-
-| 平台 | 工作方式 |
-|:-----|:---------|
-| **Google Antigravity** | 读取 `.antigravity/rules.md` 实现完整上下文感知 |
-| **Cursor** | 读取 `.cursorrules` 获取项目级规则 |
-| **Windsurf / VS Code + Copilot** | 利用 `.context/` 文件注入知识 |
-| **Claude Code** | 读取 `AGENTS.md` + `CONTEXT.md` 获取项目规范 |
-| **Gemini CLI** | 读取 `AGENTS.md` + `.context/` 注入知识 |
-| **Codex (OpenAI)** | 读取 `AGENTS.md` + 目录约定 |
-| **Cline / Aider** | 借助 `CONTEXT.md` 和目录约定 |
-| **任何 OpenAI 兼容 Agent** | `engine/antigravity_engine/tools/` 自动发现工具，标准 Python 入口 |
-
-秘诀：架构编码在**文件**中，而不是 IDE 插件里。任何能读取项目文件的 Agent 都能受益。
-
----
-
-## ⚡ 快速开始
-
-### 方式一：将认知架构注入任意项目（推荐）
+## 快速开始
 
 ```bash
-# 1. 安装 CLI
+# 安装 CLI（轻量，无 LLM 依赖）
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
 
-# 2. 将认知架构注入你的项目
-ag init my-project
+# 将认知架构注入任意项目
+ag init my-project && cd my-project
 
-# 3. 用任何 AI IDE 打开，开始提示！
+# 用 Cursor / Claude Code / Windsurf / 任何 AI IDE 打开 → 开始提示
 ```
 
-### 方式二：运行完整 Agent 引擎
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/study8677/antigravity-workspace-template.git
-cd antigravity-workspace-template
-
-# 2. 安装引擎依赖
-cd engine
-pip install -e .
-
-# 3. 配置 API 密钥
-cp .env.example .env && nano .env
-
-# 4. 指向任何工作区运行 Agent
-ag-engine --workspace /path/to/your/project "你的任务"
-```
-
-**就这么简单！** IDE 会自动加载配置，你可以直接开始提示。
+就这么简单。你的 IDE 会自动读取 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`。
 
 ---
 
-## 🎯 这是什么？
+## CLI 命令
 
-这并**不**是另一个 LangChain 封装。它是一个极简、透明的工作区，用于构建 AI Agent：
+| 命令 | 功能 | 需要 LLM？ |
+|:-----|:-----|:----------:|
+| `ag init <dir>` | 注入认知架构模板 | 否 |
+| `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` | 是 |
+| `ag ask "问题"` | 回答关于项目的问题 | 是 |
+| `ag report "内容"` | 记录发现到 `.antigravity/memory/` | 否 |
+| `ag log-decision "决策" "原因"` | 记录架构决策 | 否 |
+| `ag start-engine` | 启动完整 Agent Engine 运行时 | 是 |
 
-| 特性 | 描述 |
-|:-----|:-----|
-| 🧠 **无限记忆** | 递归摘要自动压缩上下文 |
-| 🧠 **真实思考** | 行动前使用思维链 (CoT) 进行"深度思考" |
-| 🎓 **技能系统** | `engine/antigravity_engine/skills/` 下的模块化能力，自动加载 |
-| 🛠️ **通用工具** | Python 函数放入 `engine/antigravity_engine/tools/` 即可自动发现 |
-| 📚 **自动上下文** | 向 `.context/` 添加文件即自动注入提示 |
-| 🔌 **MCP 支持** | 连接 GitHub、数据库、文件系统、自定义服务器 |
-| 🤖 **Swarm Agent** | Router-Worker 模式的多 Agent 编排 |
-| ⚡ **Gemini 原生** | 为 Gemini 2.0 Flash 做了优化 |
-| 🌐 **LLM 无关** | 支持 OpenAI、Azure、Ollama 或任何兼容 API |
-| 📂 **Artifact-First** | 约定优先的计划、日志、证据工作流 |
-| 🔒 **沙盒执行** | 可选 local / microsandbox 执行环境 |
-| 🔮 **知识中枢** | `ag ask`、`ag refresh` — 多 Agent 系统维护项目上下文 |
+所有命令支持 `--workspace <dir>` 参数指向任意目录。
 
 ---
 
-## 🏗️ 项目结构
+## 两个包，一套工作流
 
 ```
 antigravity-workspace-template/
-│
-├── cli/                          # 🖥️ 轻量级 CLI (ag init)
-│   ├── pyproject.toml            #    包配置 & 入口点
-│   └── src/ag_cli/
-│       ├── cli.py                #    CLI 命令 (init, ask, refresh, report, log-decision)
-│       └── templates/            #    认知架构模板
-│           ├── .cursorrules      #    → 注入到目标项目
-│           ├── .antigravity/     #    → 注入到目标项目
-│           └── CONTEXT.md        #    → 注入到目标项目
-│
-├── engine/                       # ⚙️ Python Agent 引擎
-│   ├── agent.py                  #    入口（支持 --workspace）
-│   ├── antigravity_engine/
-│   │   ├── agent.py              #    Agent 主循环 (Think-Act-Reflect)
-│   │   ├── config.py             #    配置（工作区感知）
-│   │   ├── memory.py             #    Markdown 记忆管理
-│   │   ├── mcp_client.py         #    MCP 集成
-│   │   ├── swarm.py              #    多 Agent 编排
-│   │   ├── tools/                #    自定义工具（自动发现）
-│   │   ├── agents/               #    专家型 Agent
-│   │   ├── sandbox/              #    代码执行沙盒
-│   │   ├── skills/               #    模块化技能（自动加载）
-│   │   └── hub/                  #    知识中枢（扫描器、Agent、管道）
-│   ├── tests/                    #    测试套件
-│   └── pyproject.toml            #    引擎依赖
-│
-├── docs/                         # 📚 文档
-├── README.md                     # 本文件
-└── LICENSE                       # MIT
+├── cli/                     # ag CLI — 轻量，pip 可安装
+│   └── templates/           # .cursorrules, CLAUDE.md, .antigravity/, ...
+└── engine/                  # Agent Engine — 完整运行时 + 知识中枢
+    └── antigravity_engine/
+        ├── agent.py         # Think-Act-Reflect 循环 (Gemini / OpenAI / Ollama)
+        ├── hub/             # 知识中枢（扫描器 → Agent → 管道）
+        ├── tools/           # 放入 .py 文件 → 自动发现为工具
+        ├── agents/          # 专家 Agent（Coder、Reviewer、Researcher）
+        ├── swarm.py         # 多 Agent 编排（Router-Worker）
+        └── sandbox/         # 代码执行（local / microsandbox）
+```
+
+**CLI**（`pip install .../cli`）—— 零 LLM 依赖。注入模板，离线记录报告和决策。
+
+**Engine**（`pip install .../engine`）—— 完整运行时。驱动 `ag ask`、`ag refresh`、`ag start-engine`。支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容 API。
+
+```bash
+# 安装两者获取完整体验
+pip install "git+https://...#subdirectory=cli"
+pip install "git+https://...#subdirectory=engine"
 ```
 
 ---
 
-## 💡 30 秒创建一个工具
+## 工作原理
+
+### 1. `ag init` — 注入上下文文件
+
+```bash
+ag init my-project
+```
+
+创建 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`、`.windsurfrules` —— 每个 IDE 读取各自的原生配置文件，全部指向同一个 `.antigravity/` 知识库。
+
+### 2. `ag refresh` — 构建项目智能
+
+```bash
+ag refresh --workspace my-project
+```
+
+扫描代码库（语言、框架、结构），将扫描结果送入多 Agent 管道，生成 `.antigravity/conventions.md`。下次 IDE 打开时读取到更丰富的上下文。
+
+### 3. `ag ask` — 查询项目
+
+```bash
+ag ask "这个项目的认证逻辑是怎么实现的？"
+```
+
+读取 `.antigravity/` 上下文，送入 Reviewer Agent，返回有依据的回答。
+
+### 4. 构建工具 — 零配置
 
 ```python
 # engine/antigravity_engine/tools/my_tool.py
-def analyze_sentiment(text: str) -> str:
-    """Analyzes the sentiment of given text."""
-    return "positive" if len(text) > 10 else "neutral"
+def check_api_health(url: str) -> str:
+    """检查 API 端点是否在线。"""
+    import requests
+    return "up" if requests.get(url).ok else "down"
 ```
 
-**重启 Agent。** 完成！工具已可用于任何 AI IDE。
+放入文件，重启即可。Agent 通过类型提示 + docstring 自动发现工具。
 
 ---
 
-## 🔌 MCP 集成
+## IDE 兼容性
 
-连接外部工具：
+架构编码在**文件**中 —— 任何能读项目文件的 Agent 都能受益：
+
+| IDE | 配置文件 |
+|:----|:---------|
+| Cursor | `.cursorrules` |
+| Claude Code | `CLAUDE.md` |
+| Windsurf | `.windsurfrules` |
+| VS Code + Copilot | `.github/copilot-instructions.md` |
+| Gemini CLI / Codex | `AGENTS.md` |
+| Cline | `.clinerules` |
+| Google Antigravity | `.antigravity/rules.md` |
+
+均由 `ag init` 生成，均指向 `.antigravity/` 共享项目上下文。
+
+---
+
+## 进阶功能
+
+<details>
+<summary><b>MCP 集成</b> — 连接外部工具（GitHub、数据库、文件系统）</summary>
 
 ```json
+// mcp_servers.json
 {
   "servers": [
     {
@@ -208,94 +179,51 @@ def analyze_sentiment(text: str) -> str:
 }
 ```
 
----
+在 `.env` 中设置 `MCP_ENABLED=true`。详见 [MCP 文档](docs/zh/MCP_INTEGRATION.md)。
+</details>
 
-## 🤖 多 Agent Swarm
-
-分解复杂任务：
+<details>
+<summary><b>多 Agent Swarm</b> — Router-Worker 编排处理复杂任务</summary>
 
 ```python
 from antigravity_engine.swarm import SwarmOrchestrator
 
 swarm = SwarmOrchestrator()
 result = swarm.execute("构建并审查一个计算器")
+# 自动路由到 Coder → Reviewer → Researcher，综合结果
 ```
 
-Swarm 自动路由到 Coder、Reviewer、Researcher Agent，综合结果并提供可检查的消息日志。
+详见 [Swarm 文档](docs/zh/SWARM_PROTOCOL.md)。
+</details>
 
----
-
-## 🔒 沙盒配置
+<details>
+<summary><b>沙盒执行</b> — 可配置的代码执行环境</summary>
 
 | 变量 | 默认值 | 选项 |
 |:-----|:------|:-----|
 | `SANDBOX_TYPE` | `local` | `local` · `microsandbox` |
 | `SANDBOX_TIMEOUT_SEC` | `30` | 秒 |
-| `SANDBOX_MAX_OUTPUT_KB` | `10` | KB |
 
-<details>
-<summary><b>Microsandbox 额外变量</b></summary>
-
-| 变量 | 默认值 |
-|:-----|:------|
-| `MSB_SERVER_URL` | `http://127.0.0.1:5555` |
-| `MSB_API_KEY` | （可选） |
-| `MSB_IMAGE` | `microsandbox/python` |
-| `MSB_CPU_LIMIT` | `1.0` |
-| `MSB_MEMORY_MB` | `512` |
+详见 [沙盒文档](docs/zh/SANDBOX.md)。
 </details>
 
 ---
 
-## 🔮 知识中枢 (Knowledge Hub)
+## 文档
 
-知识中枢在 `.antigravity/` 中维护项目上下文文件，让所有 AI IDE 更智能。
-
-```bash
-# 初始化项目上下文
-ag init my-project && cd my-project
-
-# 扫描项目并生成约定（需要 LLM）
-ag refresh
-
-# 询问项目相关问题（需要 LLM）
-ag ask "这个项目用了什么框架？"
-
-# 记录报告和决策（无需 LLM）
-ag report "在登录处理器中发现认证竞态条件"
-ag log-decision "使用 Redis 做会话" "团队已经熟悉 Redis"
-```
-
-所有命令都支持 `--workspace` 参数指向任意目录。
+| | |
+|:--|:--|
+| 🇬🇧 English | **[`docs/en/`](docs/en/)** |
+| 🇨🇳 中文 | **[`docs/zh/`](docs/zh/)** |
+| 🇪🇸 Español | **[`docs/es/`](docs/es/)** |
 
 ---
 
-## 📚 文档
-
-| 语言 | 链接 |
-|:-----|:-----|
-| 🇬🇧 English | **[`/docs/en/`](docs/en/)** |
-| 🇨🇳 中文 | **[`/docs/zh/`](docs/zh/)** |
-| 🇪🇸 Español | **[`/docs/es/`](docs/es/)** |
-
----
-
-## ✅ 项目进度
-
-- ✅ 阶段 1-8：基础、记忆、工具、Swarm、MCP
-- ✅ 阶段 9：V1.0 Monorepo 重构 — CLI + Engine 解耦架构
-- ✅ 阶段 10：知识中枢 — 多 Agent 项目上下文系统
-- 🚀 阶段 11：自动化 — git hooks、文件监听、迁移（即将到来）
-
-详见 [Roadmap](docs/zh/ROADMAP.md)。
-
----
-
-## 🤝 贡献
+## 贡献
 
 创意也是贡献！欢迎在 [issue](https://github.com/study8677/antigravity-workspace-template/issues) 中报告 bug、提出建议或提交架构方案。
 
-## 👥 贡献者
+## 贡献者
 
 <table>
   <tr>
@@ -337,11 +265,11 @@ ag log-decision "使用 Redis 做会话" "团队已经熟悉 Redis"
   </tr>
 </table>
 
-## ⭐ Star History
+## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=study8677/antigravity-workspace-template&type=Date)](https://star-history.com/#study8677/antigravity-workspace-template&Date)
 
-## 📄 许可证
+## 许可证
 
 MIT License. 详见 [LICENSE](LICENSE)。
 
@@ -351,6 +279,6 @@ MIT License. 详见 [LICENSE](LICENSE)。
 
 **[📚 查看完整文档 →](docs/zh/)**
 
-*为 AI 原生开发时代而构建 ❤️*
+*为 AI 原生开发时代而构建*
 
 </div>
