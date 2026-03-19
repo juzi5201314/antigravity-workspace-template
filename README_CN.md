@@ -4,15 +4,15 @@
 
 # AI Workspace Template
 
-**一条命令，让每个 AI IDE 更聪明。**
+### AI IDE 缺失的认知层。
 
-`ag init` 将认知架构注入任意项目目录。<br/>
-`ag ask` / `ag refresh` 通过多 Agent 分析维护活的项目上下文。
+一条命令，让每个 AI IDE 都成为你代码库的专家。
 
 语言: [English](README.md) | **中文** | [Español](README_ES.md)
 
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/study8677/antigravity-workspace-template/test.yml?style=for-the-badge&label=CI)](https://github.com/study8677/antigravity-workspace-template/actions)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-Docs-blue?style=for-the-badge&logo=gitbook&logoColor=white)](https://deepwiki.com/study8677/antigravity-workspace-template)
 
 <br/>
@@ -36,9 +36,20 @@
 
 <br/>
 
-> **核心论点**：AI Agent 的能力上限 = 它能读到的上下文质量。
->
-> 架构即**文件**，而非插件。`.cursorrules`、`CLAUDE.md`、`.antigravity/rules.md` —— 这些就是认知架构本身。跨 IDE、跨 LLM、零平台锁定。
+## 为什么选择 Antigravity？
+
+> AI Agent 的能力上限 = **它能读到的上下文质量。**
+
+每个 AI IDE 都会读项目文件。但缺乏结构时，Agent 会产生幻觉、忘记规范、生成不一致的代码。Antigravity 解决这些问题：
+
+| 痛点 | 没有 Antigravity | 有 Antigravity |
+|:----|:----------------|:--------------|
+| Agent 忘记代码风格 | 反复纠正同样的问题 | 读取 `.antigravity/conventions.md` —— 一次到位 |
+| 接手新代码库 | Agent 只能猜测架构 | `ag refresh` 自动扫描并文档化 |
+| 切换 IDE | 每个 IDE 规则不同 | 一个 `.antigravity/` 目录 —— 所有 IDE 共享 |
+| 问"X 怎么实现的？" | Agent 胡乱翻文件 | `ag ask` 基于项目上下文给出准确回答 |
+
+架构即**文件**，而非插件。`.cursorrules`、`CLAUDE.md`、`.antigravity/rules.md` —— 这些就是认知架构本身。跨 IDE、跨 LLM、零平台锁定。
 
 ---
 
@@ -58,11 +69,35 @@ ag init my-project && cd my-project
 
 ---
 
+## 功能一览
+
+```
+  ag init           将上下文文件注入任意项目（--force 可覆盖已有文件）
+       │
+       ▼
+  .antigravity/     共享知识库 —— 所有 IDE 从这里读取
+       │
+       ├──► ag refresh     多 Agent 扫描 → 自动生成 conventions.md
+       ├──► ag ask         基于项目上下文的智能问答
+       └──► ag start-engine   完整 Think-Act-Reflect Agent 运行时
+```
+
+**知识中枢（Knowledge Hub）** —— 多 Agent 管道扫描代码库，理解语言/框架/结构，生成活文档。基于 OpenAI Agent SDK + LiteLLM，支持 Gemini、OpenAI、Ollama 或任何兼容 API。
+
+**零配置工具** —— 将 `.py` 文件放入 `tools/`，添加类型提示和 docstring。Agent 启动时自动发现。
+
+**无限记忆** —— 递归摘要压缩对话历史，长时间运行不受 Token 限制。
+
+**多 Agent Swarm** —— Router-Worker 编排将任务分配给专家 Agent（Coder、Reviewer、Researcher），综合输出结果。
+
+---
+
 ## CLI 命令
 
 | 命令 | 功能 | 需要 LLM？ |
 |:-----|:-----|:----------:|
 | `ag init <dir>` | 注入认知架构模板 | 否 |
+| `ag init <dir> --force` | 重新注入，覆盖已有文件 | 否 |
 | `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` | 是 |
 | `ag ask "问题"` | 回答关于项目的问题 | 是 |
 | `ag report "内容"` | 记录发现到 `.antigravity/memory/` | 否 |
@@ -107,6 +142,8 @@ pip install "git+https://...#subdirectory=engine"
 
 ```bash
 ag init my-project
+# 已经初始化过？用 --force 覆盖：
+ag init my-project --force
 ```
 
 创建 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`、`.windsurfrules` —— 每个 IDE 读取各自的原生配置文件，全部指向同一个 `.antigravity/` 知识库。
@@ -160,6 +197,29 @@ def check_api_health(url: str) -> str:
 ---
 
 ## 进阶功能
+
+<details>
+<summary><b>知识中枢（Knowledge Hub）</b> — 多 Agent 项目智能管道</summary>
+
+Hub 扫描你的项目，识别语言/框架/结构，通过多 Agent 管道（OpenAI Agent SDK + LiteLLM）生成活文档：
+
+```bash
+# 从代码扫描生成规范文档
+ag refresh
+
+# 仅扫描上次刷新后变更的文件
+ag refresh --quick
+
+# 基于项目上下文提问
+ag ask "这个项目用了什么测试模式？"
+
+# 记录发现和决策（无需 LLM）
+ag report "认证模块需要重构"
+ag log-decision "使用 PostgreSQL" "团队有丰富经验"
+```
+
+支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容端点。
+</details>
 
 <details>
 <summary><b>MCP 集成</b> — 连接外部工具（GitHub、数据库、文件系统）</summary>
