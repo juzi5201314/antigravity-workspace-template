@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -12,6 +13,10 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         workspace: Project root directory.
         quick: If True, only scan files changed since last refresh.
     """
+    from agents import set_tracing_disabled
+
+    set_tracing_disabled(True)
+
     from antigravity_engine.config import Settings
     from antigravity_engine.hub.agents import build_refresh_agent, create_model
     from antigravity_engine.hub.scanner import full_scan, quick_scan
@@ -20,6 +25,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     model = create_model(settings)
 
     sha_file = workspace / ".antigravity" / ".last_refresh_sha"
+
+    print("[1/3] Scanning project...", file=sys.stderr)
 
     if quick and sha_file.exists():
         since_sha = sha_file.read_text(encoding="utf-8").strip()
@@ -38,8 +45,12 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
             "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
         ) from None
 
+    print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
+
     result = await Runner.run(agent, prompt)
     conventions_content = result.final_output
+
+    print("[3/3] Writing conventions.md...", file=sys.stderr)
 
     # Write conventions
     ag_dir = workspace / ".antigravity"
@@ -64,11 +75,17 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     Returns:
         Answer string.
     """
+    from agents import set_tracing_disabled
+
+    set_tracing_disabled(True)
+
     from antigravity_engine.config import Settings
     from antigravity_engine.hub.agents import build_reviewer_agent, create_model
 
     settings = Settings()
     model = create_model(settings)
+
+    print("[1/3] Gathering project context...", file=sys.stderr)
 
     # Gather context
     context_parts: list[str] = []
@@ -85,6 +102,11 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     if decisions.exists():
         context_parts.append(decisions.read_text(encoding="utf-8"))
 
+    # Also read memory reports if available
+    reports = workspace / ".antigravity" / "memory" / "reports.md"
+    if reports.exists():
+        context_parts.append(reports.read_text(encoding="utf-8"))
+
     context = "\n---\n".join(context_parts) if context_parts else "(no context available)"
     prompt = f"Project context:\n{context}\n\nQuestion: {question}"
 
@@ -96,7 +118,12 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
             "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
         ) from None
 
+    print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
+
     result = await Runner.run(agent, prompt)
+
+    print("[3/3] Synthesizing answer...", file=sys.stderr)
+
     return result.final_output
 
 

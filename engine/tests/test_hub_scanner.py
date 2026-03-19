@@ -66,6 +66,48 @@ def test_full_scan_top_dirs(tmp_path: Path) -> None:
     assert ".hidden" not in report.top_dirs
 
 
+def test_full_scan_skips_custom_venv(tmp_path: Path) -> None:
+    """Custom-named venvs (detected by pyvenv.cfg) are excluded."""
+    venv = tmp_path / "my_custom_venv"
+    venv.mkdir()
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin", encoding="utf-8")
+    (venv / "lib").mkdir()
+    (venv / "lib" / "site.py").write_text("# site", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('hi')", encoding="utf-8")
+
+    report = full_scan(tmp_path)
+    assert report.file_count == 1  # only app.py
+    assert "my_custom_venv" not in report.top_dirs
+
+
+def test_full_scan_excludes_egg_info_from_top_dirs(tmp_path: Path) -> None:
+    """egg-info directories are excluded from top_dirs."""
+    (tmp_path / "mypackage.egg-info").mkdir()
+    (tmp_path / "src").mkdir()
+
+    report = full_scan(tmp_path)
+    assert "src" in report.top_dirs
+    assert "mypackage.egg-info" not in report.top_dirs
+
+
+def test_full_scan_detects_nested_tests(tmp_path: Path) -> None:
+    """Tests inside subdirectories (engine/tests/) are detected."""
+    engine_tests = tmp_path / "engine" / "tests"
+    engine_tests.mkdir(parents=True)
+    (engine_tests / "test_foo.py").write_text("def test_foo(): pass", encoding="utf-8")
+
+    report = full_scan(tmp_path)
+    assert report.has_tests is True
+
+
+def test_full_scan_detects_pytest(tmp_path: Path) -> None:
+    """has_pytest is set when conftest.py or pytest.ini exists."""
+    (tmp_path / "conftest.py").write_text("# conftest", encoding="utf-8")
+
+    report = full_scan(tmp_path)
+    assert report.has_pytest is True
+
+
 def test_quick_scan_falls_back_to_full(tmp_path: Path) -> None:
     """quick_scan falls back to full_scan when git fails."""
     (tmp_path / "main.py").write_text("x = 1", encoding="utf-8")

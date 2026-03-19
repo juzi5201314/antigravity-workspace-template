@@ -56,6 +56,7 @@ async def test_refresh_pipeline_creates_conventions(tmp_path: Path, monkeypatch)
     mock_agents_module = MagicMock()
     mock_agents_module.Runner.run = AsyncMock(return_value=mock_result)
     mock_agents_module.Agent = MagicMock()
+    mock_agents_module.set_tracing_disabled = MagicMock()
 
     with patch.dict("sys.modules", {"agents": mock_agents_module}):
         import importlib
@@ -85,6 +86,7 @@ async def test_ask_pipeline_returns_answer(tmp_path: Path, monkeypatch) -> None:
     mock_agents_module = MagicMock()
     mock_agents_module.Runner.run = AsyncMock(return_value=mock_result)
     mock_agents_module.Agent = MagicMock()
+    mock_agents_module.set_tracing_disabled = MagicMock()
 
     with patch.dict("sys.modules", {"agents": mock_agents_module}):
         import importlib
