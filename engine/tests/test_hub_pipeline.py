@@ -1,10 +1,14 @@
-"""Tests for hub.pipeline — mocked Runner."""
+"""Tests for hub.pipeline - mocked Runner."""
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from antigravity_engine.hub.pipeline import _format_scan_report, _get_head_sha
+from antigravity_engine.hub.pipeline import (
+    _build_ask_context,
+    _format_scan_report,
+    _get_head_sha,
+)
 from antigravity_engine.hub.scanner import ScanReport
 
 
@@ -94,3 +98,30 @@ async def test_ask_pipeline_returns_answer(tmp_path: Path, monkeypatch) -> None:
         answer = await pipeline_mod.ask_pipeline(tmp_path, "What framework?")
 
     assert "FastAPI" in answer
+
+
+def test_build_ask_context_includes_root_and_memory_docs(tmp_path: Path) -> None:
+    """ask context should include root docs and memory logs when present."""
+    ag_dir = tmp_path / ".antigravity"
+    memory_dir = ag_dir / "memory"
+    (ag_dir / "decisions").mkdir(parents=True)
+    memory_dir.mkdir(parents=True)
+
+    (ag_dir / "conventions.md").write_text("Python + FastAPI", encoding="utf-8")
+    (tmp_path / "CONTEXT.md").write_text("Use service layer", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text(
+        "Read the antigravity files first",
+        encoding="utf-8",
+    )
+    (memory_dir / "reports.md").write_text(
+        "Auth module needs cleanup",
+        encoding="utf-8",
+    )
+
+    context = _build_ask_context(tmp_path)
+
+    assert ".antigravity/conventions.md" in context
+    assert "CONTEXT.md" in context
+    assert "AGENTS.md" in context
+    assert ".antigravity/memory/reports.md" in context
+    assert "Auth module needs cleanup" in context

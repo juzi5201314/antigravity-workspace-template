@@ -1,4 +1,4 @@
-"""Hub pipelines — refresh and ask."""
+"""Hub pipelines - refresh and ask."""
 from __future__ import annotations
 
 import subprocess
@@ -54,6 +54,58 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     print(f"Updated {ag_dir / 'conventions.md'}")
 
 
+def _read_context_file(path: Path, label: str) -> str | None:
+    """Read a context file and wrap it with a label for prompt injection."""
+    if not path.exists() or not path.is_file():
+        return None
+
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    if not content:
+        return None
+
+    return f"--- {label} ---\n{content}"
+
+
+def _build_ask_context(workspace: Path) -> str:
+    """Collect the most useful project context documents for Q&A."""
+    context_parts: list[str] = []
+
+    static_sources = [
+        (
+            workspace / ".antigravity" / "conventions.md",
+            ".antigravity/conventions.md",
+        ),
+        (workspace / ".antigravity" / "rules.md", ".antigravity/rules.md"),
+        (
+            workspace / ".antigravity" / "decisions" / "log.md",
+            ".antigravity/decisions/log.md",
+        ),
+        (workspace / "CONTEXT.md", "CONTEXT.md"),
+        (workspace / "AGENTS.md", "AGENTS.md"),
+    ]
+
+    for path, label in static_sources:
+        rendered = _read_context_file(path, label)
+        if rendered:
+            context_parts.append(rendered)
+
+    memory_dir = workspace / ".antigravity" / "memory"
+    if memory_dir.exists():
+        for memory_file in sorted(memory_dir.glob("*.md")):
+            rendered = _read_context_file(
+                memory_file,
+                f".antigravity/memory/{memory_file.name}",
+            )
+            if rendered:
+                context_parts.append(rendered)
+
+    return "\n\n".join(context_parts) if context_parts else "(no context available)"
+
+
 async def ask_pipeline(workspace: Path, question: str) -> str:
     """Answer a question about the project.
 
@@ -70,22 +122,7 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     settings = Settings()
     model = create_model(settings)
 
-    # Gather context
-    context_parts: list[str] = []
-
-    conventions = workspace / ".antigravity" / "conventions.md"
-    if conventions.exists():
-        context_parts.append(conventions.read_text(encoding="utf-8"))
-
-    rules = workspace / ".antigravity" / "rules.md"
-    if rules.exists():
-        context_parts.append(rules.read_text(encoding="utf-8"))
-
-    decisions = workspace / ".antigravity" / "decisions" / "log.md"
-    if decisions.exists():
-        context_parts.append(decisions.read_text(encoding="utf-8"))
-
-    context = "\n---\n".join(context_parts) if context_parts else "(no context available)"
+    context = _build_ask_context(workspace)
     prompt = f"Project context:\n{context}\n\nQuestion: {question}"
 
     agent = build_reviewer_agent(model)
