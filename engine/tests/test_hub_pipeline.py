@@ -127,3 +127,41 @@ def test_build_ask_context_includes_root_and_memory_docs(tmp_path: Path) -> None
     assert "AGENTS.md" in context
     assert ".antigravity/memory/reports.md" in context
     assert "Auth module needs cleanup" in context
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: config/entry/git in _format_scan_report
+# ---------------------------------------------------------------------------
+
+
+def test_format_scan_report_includes_config() -> None:
+    """Config file contents appear in the formatted report."""
+    report = ScanReport(
+        root=Path("/tmp/test"),
+        config_contents={"pyproject.toml": '[project]\nname = "demo"'},
+    )
+    result = _format_scan_report(report)
+    assert "pyproject.toml" in result
+    assert 'name = "demo"' in result
+
+
+def test_format_scan_report_includes_entry_points() -> None:
+    """Entry point snippets appear in the formatted report."""
+    report = ScanReport(
+        root=Path("/tmp/test"),
+        entry_points={"main.py": "import sys\nprint('hello')"},
+    )
+    result = _format_scan_report(report)
+    assert "main.py" in result
+    assert "import sys" in result
+
+
+def test_format_scan_report_includes_git() -> None:
+    """Git summary appears in the formatted report."""
+    report = ScanReport(
+        root=Path("/tmp/test"),
+        git_summary="Recent commits:\nabc123 fix auth\ndef456 add tests",
+    )
+    result = _format_scan_report(report)
+    assert "fix auth" in result
+    assert "add tests" in result

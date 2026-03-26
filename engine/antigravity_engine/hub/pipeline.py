@@ -19,7 +19,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
     from antigravity_engine.config import Settings
     from antigravity_engine.hub.agents import build_refresh_agent, create_model
-    from antigravity_engine.hub.scanner import full_scan, quick_scan
+    from antigravity_engine.hub.scanner import extract_structure, full_scan, quick_scan
 
     settings = Settings()
     model = create_model(settings)
@@ -50,12 +50,17 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     result = await Runner.run(agent, prompt)
     conventions_content = result.final_output
 
-    print("[3/3] Writing conventions.md...", file=sys.stderr)
+    print("[3/4] Writing conventions.md...", file=sys.stderr)
 
     # Write conventions
     ag_dir = workspace / ".antigravity"
     ag_dir.mkdir(parents=True, exist_ok=True)
     (ag_dir / "conventions.md").write_text(conventions_content, encoding="utf-8")
+
+    # Generate structure map (pure Python, no LLM)
+    print("[4/4] Generating structure.md...", file=sys.stderr)
+    structure_content = extract_structure(workspace)
+    (ag_dir / "structure.md").write_text(structure_content, encoding="utf-8")
 
     # Save SHA checkpoint
     current_sha = _get_head_sha(workspace)
@@ -63,6 +68,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         sha_file.write_text(current_sha, encoding="utf-8")
 
     print(f"Updated {ag_dir / 'conventions.md'}")
+    print(f"Updated {ag_dir / 'structure.md'}")
 
 
 def _read_context_file(path: Path, label: str) -> str | None:
@@ -86,6 +92,10 @@ def _build_ask_context(workspace: Path) -> str:
     context_parts: list[str] = []
 
     static_sources = [
+        (
+            workspace / ".antigravity" / "structure.md",
+            ".antigravity/structure.md",
+        ),
         (
             workspace / ".antigravity" / "conventions.md",
             ".antigravity/conventions.md",
@@ -142,7 +152,7 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     context = _build_ask_context(workspace)
     prompt = f"Project context:\n{context}\n\nQuestion: {question}"
 
-    agent = build_reviewer_agent(model)
+    agent = build_reviewer_agent(model, workspace=workspace)
     try:
         from agents import Runner
     except ImportError:
@@ -183,6 +193,21 @@ def _format_scan_report(report) -> str:
 
     if report.readme_snippet:
         lines.append(f"\nREADME excerpt:\n{report.readme_snippet}")
+
+    # --- Phase 1: config files, entry points, git history ---
+    if getattr(report, "config_contents", None):
+        lines.append("\n--- Configuration files (actual content) ---")
+        for name, content in report.config_contents.items():
+            lines.append(f"\n### {name}\n```\n{content}\n```")
+
+    if getattr(report, "entry_points", None):
+        lines.append("\n--- Entry point files (first lines) ---")
+        for name, content in report.entry_points.items():
+            lines.append(f"\n### {name}\n```\n{content}\n```")
+
+    git_summary = getattr(report, "git_summary", "")
+    if git_summary:
+        lines.append(f"\n--- Git activity ---\n{git_summary}")
 
     return "\n".join(lines)
 

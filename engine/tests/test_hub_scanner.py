@@ -1,7 +1,7 @@
 """Tests for hub.scanner — pure Python, no LLM needed."""
 from pathlib import Path
 
-from antigravity_engine.hub.scanner import ScanReport, full_scan, quick_scan
+from antigravity_engine.hub.scanner import ScanReport, extract_structure, full_scan, quick_scan
 
 
 def test_full_scan_empty_dir(tmp_path: Path) -> None:
@@ -114,3 +114,190 @@ def test_quick_scan_falls_back_to_full(tmp_path: Path) -> None:
     report = quick_scan(tmp_path, "nonexistent-sha")
     # Should still produce a valid report via fallback
     assert isinstance(report, ScanReport)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: config files, entry points, git history
+# ---------------------------------------------------------------------------
+
+
+def test_full_scan_reads_config_files(tmp_path: Path) -> None:
+    """Config files present in the project are read into ScanReport."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\n', encoding="utf-8"
+    )
+    (tmp_path / "package.json").write_text(
+        '{"name": "demo", "main": "index.js"}', encoding="utf-8"
+    )
+    report = full_scan(tmp_path)
+    assert "pyproject.toml" in report.config_contents
+    assert "demo" in report.config_contents["pyproject.toml"]
+    assert "package.json" in report.config_contents
+
+
+def test_full_scan_config_truncates_long_files(tmp_path: Path) -> None:
+    """Config files longer than the line limit are truncated."""
+    long_content = "\n".join(f"line-{i}" for i in range(500))
+    (tmp_path / "pyproject.toml").write_text(long_content, encoding="utf-8")
+    report = full_scan(tmp_path)
+    lines = report.config_contents["pyproject.toml"].splitlines()
+    assert len(lines) <= 200
+
+
+def test_full_scan_reads_ci_workflows(tmp_path: Path) -> None:
+    """CI workflow YAML files under .github/workflows/ are read."""
+    wf_dir = tmp_path / ".github" / "workflows"
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "test.yml").write_text("name: CI\non: push\n", encoding="utf-8")
+    report = full_scan(tmp_path)
+    assert ".github/workflows/test.yml" in report.config_contents
+
+
+def test_full_scan_detects_entry_points_from_pyproject(tmp_path: Path) -> None:
+    """Entry points are extracted from pyproject.toml [project.scripts]."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project.scripts]\nag = "ag_cli.cli:app"\n', encoding="utf-8"
+    )
+    cli_dir = tmp_path / "ag_cli"
+    cli_dir.mkdir()
+    (cli_dir / "cli.py").write_text("app = 'hello'\n", encoding="utf-8")
+    report = full_scan(tmp_path)
+    assert "ag_cli/cli.py" in report.entry_points
+
+
+def test_full_scan_detects_common_entry_files(tmp_path: Path) -> None:
+    """Common entry-point filenames are detected as fallback."""
+    (tmp_path / "main.py").write_text("if __name__ == '__main__': pass\n", encoding="utf-8")
+    report = full_scan(tmp_path)
+    assert "main.py" in report.entry_points
+
+
+def test_full_scan_git_summary_no_git(tmp_path: Path) -> None:
+    """git_summary is empty when the directory is not a git repo."""
+    report = full_scan(tmp_path)
+    assert report.git_summary == ""
+
+
+def test_full_scan_git_summary_with_repo(tmp_path: Path) -> None:
+    """git_summary contains commit info when a git repo exists."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=str(tmp_path), capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(tmp_path), capture_output=True, check=True,
+    )
+    (tmp_path / "hello.py").write_text("x = 1", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(tmp_path), capture_output=True, check=True,
+    )
+    report = full_scan(tmp_path)
+    assert "init" in report.git_summary
+
+
+# ---------------------------------------------------------------------------
+# extract_structure — code skeleton generation
+# ---------------------------------------------------------------------------
+
+
+def test_extract_structure_empty_dir(tmp_path: Path) -> None:
+    result = extract_structure(tmp_path)
+    assert "Project Structure Map" in result
+
+
+def test_extract_structure_python_file(tmp_path: Path) -> None:
+    """Python files are parsed with ast — classes and functions extracted."""
+    code = '''\
+"""Auth module for JWT tokens."""
+
+import jwt
+from datetime import datetime
+
+
+class TokenManager:
+    """Manages JWT token lifecycle."""
+
+    def create_token(self, user_id: str) -> str:
+        """Create a new JWT token."""
+        pass
+
+
+def login(username: str, password: str) -> bool:
+    """Authenticate a user."""
+    pass
+'''
+    (tmp_path / "auth.py").write_text(code, encoding="utf-8")
+    result = extract_structure(tmp_path)
+    assert "auth.py" in result
+    assert "TokenManager" in result
+    assert "login" in result
+    assert "username" in result
+    assert "jwt" in result or "import" in result
+
+
+def test_extract_structure_js_file(tmp_path: Path) -> None:
+    """JS/TS files are parsed with regex — exports detected."""
+    code = '''\
+import express from "express";
+
+export function handleLogin(req, res) {
+    return res.json({ ok: true });
+}
+
+export class AuthController {
+    constructor() {}
+}
+'''
+    (tmp_path / "app.js").write_text(code, encoding="utf-8")
+    result = extract_structure(tmp_path)
+    assert "app.js" in result
+    assert "handleLogin" in result
+    assert "AuthController" in result
+
+
+def test_extract_structure_go_file(tmp_path: Path) -> None:
+    """Go files are parsed with regex — funcs and types detected."""
+    code = '''\
+package auth
+
+func Login(username string, password string) error {
+    return nil
+}
+
+type UserService struct {
+    db *sql.DB
+}
+'''
+    (tmp_path / "auth.go").write_text(code, encoding="utf-8")
+    result = extract_structure(tmp_path)
+    assert "auth.go" in result
+    assert "Login" in result
+    assert "UserService" in result
+
+
+def test_extract_structure_nested_dirs(tmp_path: Path) -> None:
+    """Files in subdirectories are organized by directory in output."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    (tmp_path / "setup.py").write_text("# setup\n", encoding="utf-8")
+    result = extract_structure(tmp_path)
+    assert "src/" in result
+    assert "main.py" in result
+
+
+def test_extract_structure_skips_node_modules(tmp_path: Path) -> None:
+    """node_modules and other skip dirs are excluded."""
+    nm = tmp_path / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    (nm / "index.js").write_text("export function secret() {}", encoding="utf-8")
+    (tmp_path / "app.js").write_text("export function main() {}", encoding="utf-8")
+    result = extract_structure(tmp_path)
+    assert "secret" not in result
+    assert "main" in result

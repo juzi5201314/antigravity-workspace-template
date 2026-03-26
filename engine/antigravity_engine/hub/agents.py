@@ -10,7 +10,8 @@ Ask Swarm (ag ask) — 3 agents:
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from antigravity_engine.config import Settings
@@ -164,89 +165,199 @@ def build_refresh_swarm(model: str):
 
 
 # ---------------------------------------------------------------------------
-# Ask Swarm — 3 agents: ContextCurator → DeepAnalyst → AnswerSynthesizer
+# Ask Swarm — Router-Worker pattern with scoped area agents
 # ---------------------------------------------------------------------------
 
-_CONTEXT_CURATOR_INSTRUCTIONS = """\
-You are a context curator for a software project.
+_ROUTER_INSTRUCTIONS = """\
+You are the Router agent for a software project Q&A system.
 
-Given project context documents and a user question, your job is to:
-- Identify which parts of the context are most relevant to the question
-- Extract and organize the key information
-- Note any gaps where context is insufficient
-- Flag related files, patterns, or decisions that might be relevant
+You have access to the project's **structure map** (provided in the prompt)
+which tells you what code areas exist, what modules/classes/functions are
+in each area, and their purpose.
 
-Produce a focused context brief — only the information needed to answer
-the question well. Discard irrelevant details.
+Your job:
+1. Read the user's question carefully.
+2. Based on the structure map, identify which project area(s) are most
+   likely to contain the answer (e.g. "engine/antigravity_engine/hub/"
+   for a question about the Knowledge Hub).
+3. Hand off to the appropriate **AreaWorker** agent.  Each worker is
+   scoped to a specific directory and has tools to search/read code
+   and check git history **only within that area**.
+4. If the question spans multiple areas, hand off to the worker for
+   the most relevant area first — it will hand back to you if needed.
 
-When your curation is complete, hand off to DeepAnalyst for thorough
-analysis of the question.
-"""
-
-_DEEP_ANALYST_INSTRUCTIONS = """\
-You are a senior software analyst.
-
-Using the curated context from the previous agent, perform deep analysis:
-- Answer the core question with specific technical detail
-- Reference concrete files, directories, and code patterns
-- Consider edge cases, trade-offs, and implications
-- Connect related decisions or patterns if relevant
-
-Your analysis should be thorough but structured. Use bullet points for
-clarity.
-
-When your analysis is complete, hand off to AnswerSynthesizer for the
-final user-facing response.
-"""
-
-_ANSWER_SYNTHESIZER_INSTRUCTIONS = """\
-You are an expert communicator for technical teams.
-
-Using ALL analysis from the previous agents, produce the final answer:
-- Lead with a direct, clear answer to the question
-- Support with specific references (files, patterns, decisions)
-- Be actionable — if the user should do something, say what
+When workers return findings, synthesize them into a final answer:
+- Lead with a direct answer to the question
+- **Cite specific file paths, line numbers, and function names**
+- Include commit history when it explains "why"
 - Be concise — under 200 words unless the question demands more
 
-Output ONLY the final answer. No preamble like "Based on the analysis..."
-— just answer directly.
+Output ONLY the final answer.  No preamble.
+"""
+
+_AREA_WORKER_INSTRUCTIONS_TEMPLATE = """\
+You are an AreaWorker agent responsible for the **{area}** directory.
+
+You have tools to search code, read files, list directories, and check
+git history — all scoped to your area.  Use them to find concrete
+evidence that answers the Router's question.
+
+Steps:
+1. Use ``search_code`` to find relevant code within your area.
+2. Use ``read_file`` to inspect the actual source of promising files.
+3. Use ``list_directory`` to explore sub-directories if needed.
+4. Use ``git_file_history`` to check when/why key files were changed.
+
+Return your findings with:
+- Exact file paths and line numbers
+- Function/class signatures
+- Relevant code snippets (keep them short)
+- Git commit messages that explain intent
+
+Be thorough but concise.  Hand off back to Router when done.
 """
 
 
-def build_ask_swarm(model: str):
-    """Build the Ask Swarm — a 3-agent chain for project Q&A.
+def _wrap_tools(tool_dict: dict) -> list:
+    """Wrap plain functions with the Agent SDK ``function_tool`` decorator.
 
-    Flow: ContextCurator → DeepAnalyst → AnswerSynthesizer
+    Args:
+        tool_dict: Mapping of tool name to callable (from create_ask_tools).
+
+    Returns:
+        List of decorated tool functions.
+    """
+    try:
+        from agents import function_tool
+    except ImportError:
+        return []
+
+    wrapped: list = []
+    for fn in tool_dict.values():
+        wrapped.append(function_tool(fn))
+    return wrapped
+
+
+def _detect_areas(workspace: Path) -> list[str]:
+    """Detect the top-level code areas in a project.
+
+    An "area" is a top-level directory that contains source code files.
+    Directories like .git, node_modules, etc. are excluded.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        List of relative directory paths (e.g. ["engine", "cli", "docs"]).
+    """
+    skip = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+        ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
+        ".next", ".nuxt", "target", "vendor", ".antigravity", ".context",
+        "artifacts", ".github",
+    }
+    areas: list[str] = []
+    try:
+        for item in sorted(workspace.iterdir()):
+            if not item.is_dir():
+                continue
+            if item.name.startswith(".") or item.name in skip:
+                continue
+            if item.name.endswith(".egg-info"):
+                continue
+            # Only count directories that contain at least one source file
+            has_source = any(
+                f.is_file() and not f.name.startswith(".")
+                for f in item.rglob("*")
+                if f.is_file()
+            )
+            if has_source:
+                areas.append(item.name)
+    except OSError:
+        pass
+
+    # Always include root-level source files as a pseudo-area
+    root_files = [
+        f for f in workspace.iterdir()
+        if f.is_file() and f.suffix in (".py", ".js", ".ts", ".go", ".rs")
+    ]
+    if root_files:
+        areas.insert(0, ".")
+
+    return areas
+
+
+def build_ask_swarm(model: str, workspace: Optional[Path] = None):
+    """Build the Ask Swarm using a Router-Worker pattern.
+
+    The Router reads the project structure map and dispatches questions
+    to scoped AreaWorker agents.  Each worker has code exploration tools
+    limited to its directory area.
 
     Args:
         model: Model identifier string.
+        workspace: Project root directory.  When ``None`` the swarm
+            falls back to a single agent without tools.
 
     Returns:
-        The entry-point Agent (ContextCurator). Pass it to Runner.run().
+        The entry-point Agent (Router). Pass it to Runner.run().
     """
     Agent = _import_agent()
 
-    answer_synthesizer = Agent(
-        name="AnswerSynthesizer",
-        instructions=_ANSWER_SYNTHESIZER_INSTRUCTIONS,
+    if workspace is None:
+        # Fallback: single agent, no tools (backward-compatible)
+        return Agent(
+            name="AskAgent",
+            instructions=(
+                "Answer the user's question about the project based on "
+                "the provided context.  Be concise and cite file paths."
+            ),
+            model=model,
+        )
+
+    from antigravity_engine.hub.ask_tools import create_ask_tools
+
+    # Detect project areas and create a scoped worker for each.
+    areas = _detect_areas(workspace)
+    workers: list = []
+
+    for area in areas:
+        area_path = workspace if area == "." else workspace / area
+        area_tools = create_ask_tools(area_path)
+        wrapped = _wrap_tools(area_tools)
+
+        display_name = "(root)" if area == "." else area
+        worker = Agent(
+            name=f"Worker_{area.replace('/', '_').replace('.', 'root')}",
+            instructions=_AREA_WORKER_INSTRUCTIONS_TEMPLATE.format(area=display_name),
+            model=model,
+            tools=wrapped,
+        )
+        workers.append(worker)
+
+    # Also create a "full project" worker as fallback when no area matches.
+    full_tools = create_ask_tools(workspace)
+    full_worker = Agent(
+        name="Worker_full_project",
+        instructions=_AREA_WORKER_INSTRUCTIONS_TEMPLATE.format(area="entire project"),
         model=model,
+        tools=_wrap_tools(full_tools),
+    )
+    workers.append(full_worker)
+
+    # Router can hand off to any worker; workers hand back to Router.
+    router = Agent(
+        name="Router",
+        instructions=_ROUTER_INSTRUCTIONS,
+        model=model,
+        handoffs=workers,
     )
 
-    deep_analyst = Agent(
-        name="DeepAnalyst",
-        instructions=_DEEP_ANALYST_INSTRUCTIONS,
-        model=model,
-        handoffs=[answer_synthesizer],
-    )
+    # Workers hand back to Router after completing their investigation.
+    for worker in workers:
+        worker.handoffs = [router]
 
-    context_curator = Agent(
-        name="ContextCurator",
-        instructions=_CONTEXT_CURATOR_INSTRUCTIONS,
-        model=model,
-        handoffs=[deep_analyst],
-    )
-
-    return context_curator
+    return router
 
 
 # ---------------------------------------------------------------------------
@@ -265,13 +376,14 @@ def build_refresh_agent(model: str):
     return build_refresh_swarm(model)
 
 
-def build_reviewer_agent(model: str):
+def build_reviewer_agent(model: str, workspace: Optional[Path] = None):
     """Build the ask swarm entry-point agent.
 
     Args:
         model: Model identifier string.
+        workspace: Project root directory (passed to build_ask_swarm).
 
     Returns:
         The entry-point Agent for the Ask Swarm.
     """
-    return build_ask_swarm(model)
+    return build_ask_swarm(model, workspace=workspace)

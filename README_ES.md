@@ -77,12 +77,12 @@ Eso es todo. Tu IDE ahora lee `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.m
        ▼
   .antigravity/     Base de conocimiento compartida — cada IDE lee de aquí
        │
-       ├──► ag refresh     Escaneo multi-agente → conventions.md auto-generado
-       ├──► ag ask         Q&A fundamentada sobre tu proyecto
+       ├──► ag refresh     Escaneo multi-agente → conventions.md + structure.md
+       ├──► ag ask         Q&A Router-Worker con contexto + evidencia de código
        └──► ag start-engine   Runtime completo Think-Act-Reflect
 ```
 
-**Knowledge Hub** — Pipeline multi-agente que escanea tu codebase, entiende lenguajes/frameworks/estructura, y escribe documentación viva. Basado en OpenAI Agent SDK + LiteLLM, funciona con Gemini, OpenAI, Ollama, o cualquier API compatible.
+**Knowledge Hub** — Pipeline multi-agente que escanea tu codebase, entiende lenguajes/frameworks/estructura, escribe documentación viva y genera un mapa estructural del proyecto para preguntas posteriores. Basado en OpenAI Agent SDK + LiteLLM, funciona con Gemini, OpenAI, Ollama, o cualquier API compatible.
 
 **Herramientas Zero-Config** — Coloca un archivo `.py` en `tools/`, añade type hints y docstring. El agente lo descubre automáticamente al iniciar.
 
@@ -98,8 +98,8 @@ Eso es todo. Tu IDE ahora lee `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.m
 |:--------|:---------|:---------------:|
 | `ag init <dir>` | Inyectar plantillas de arquitectura cognitiva | No |
 | `ag init <dir> --force` | Re-inyectar, sobrescribiendo archivos existentes | No |
-| `ag refresh` | Escanear proyecto, generar `.antigravity/conventions.md` | Sí |
-| `ag ask "pregunta"` | Responder preguntas sobre el proyecto | Sí |
+| `ag refresh` | Escanear proyecto, generar `.antigravity/conventions.md` y `.antigravity/structure.md` | Sí |
+| `ag ask "pregunta"` | Responder preguntas usando contexto compartido y exploración de código acotada | Sí |
 | `ag report "mensaje"` | Registrar un hallazgo en `.antigravity/memory/` | No |
 | `ag log-decision "qué" "por qué"` | Registrar una decisión arquitectónica | No |
 | `ag start-engine` | Lanzar el runtime completo del Agent Engine | Sí |
@@ -154,7 +154,7 @@ Crea `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsu
 ag refresh --workspace mi-proyecto
 ```
 
-Escanea tu código (lenguajes, frameworks, estructura), alimenta el escaneo a un pipeline multi-agente, escribe `.antigravity/conventions.md`. La próxima vez que tu IDE abra, lee contexto más rico.
+Escanea tu código (lenguajes, frameworks, estructura), alimenta el escaneo a un pipeline multi-agente, escribe `.antigravity/conventions.md` y genera `.antigravity/structure.md` como mapa esquelético del código para preguntas posteriores. La próxima vez que tu IDE abra, lee contexto más rico.
 
 ### 3. `ag ask` — Consultar tu proyecto
 
@@ -162,7 +162,7 @@ Escanea tu código (lenguajes, frameworks, estructura), alimenta el escaneo a un
 ag ask "¿Cómo funciona la autenticación en este proyecto?"
 ```
 
-Lee el contexto de `.antigravity/`, lo alimenta a un agente revisor, devuelve una respuesta fundamentada.
+Lee `.antigravity/structure.md`, `.antigravity/conventions.md`, documentación del proyecto y logs de memoria, y luego usa un ask swarm Router-Worker con herramientas acotadas de búsqueda de código para devolver una respuesta fundamentada.
 
 ### 4. Construir herramientas — Zero config
 
@@ -201,16 +201,16 @@ Todos generados por `ag init`. Todos referencian `.antigravity/` para contexto c
 <details>
 <summary><b>Knowledge Hub</b> — Pipeline de inteligencia de proyecto multi-agente</summary>
 
-El Hub escanea tu proyecto, identifica lenguajes/frameworks/estructura, y usa un pipeline multi-agente (OpenAI Agent SDK + LiteLLM) para generar documentación viva:
+El Hub escanea tu proyecto, identifica lenguajes/frameworks/estructura, y usa un pipeline multi-agente (OpenAI Agent SDK + LiteLLM) para generar documentación viva y un mapa estructural para el enrutamiento posterior:
 
 ```bash
-# Generar convenciones desde el escaneo del código
+# Generar convenciones y mapa estructural desde el escaneo del código
 ag refresh
 
 # Solo escanear archivos cambiados desde el último refresh
 ag refresh --quick
 
-# Hacer preguntas fundamentadas en el contexto del proyecto
+# Hacer preguntas fundamentadas en el contexto del proyecto y evidencia viva de código
 ag ask "¿Qué patrones de testing usa este proyecto?"
 
 # Registrar hallazgos y decisiones (sin LLM)
@@ -286,6 +286,7 @@ OPENAI_MODEL=moonshotai/kimi-k2.5
 ```bash
 $ ag refresh --workspace .
 Updated .antigravity/conventions.md
+Updated .antigravity/structure.md
 ```
 
 Salida generada por Kimi K2.5:

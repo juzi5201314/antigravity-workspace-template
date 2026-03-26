@@ -77,12 +77,12 @@ ag init my-project && cd my-project
        ▼
   .antigravity/     共享知识库 —— 所有 IDE 从这里读取
        │
-       ├──► ag refresh     多 Agent 扫描 → 自动生成 conventions.md
-       ├──► ag ask         基于项目上下文的智能问答
+       ├──► ag refresh     多 Agent 扫描 → 生成 conventions.md + structure.md
+       ├──► ag ask         Router-Worker 问答，结合上下文与代码证据
        └──► ag start-engine   完整 Think-Act-Reflect Agent 运行时
 ```
 
-**知识中枢（Knowledge Hub）** —— 多 Agent 管道扫描代码库，理解语言/框架/结构，生成活文档。基于 OpenAI Agent SDK + LiteLLM，支持 Gemini、OpenAI、Ollama 或任何兼容 API。
+**知识中枢（Knowledge Hub）** —— 多 Agent 管道扫描代码库，理解语言/框架/结构，生成活文档，并额外产出项目结构图供后续问答使用。基于 OpenAI Agent SDK + LiteLLM，支持 Gemini、OpenAI、Ollama 或任何兼容 API。
 
 **零配置工具** —— 将 `.py` 文件放入 `tools/`，添加类型提示和 docstring。Agent 启动时自动发现。
 
@@ -98,8 +98,8 @@ ag init my-project && cd my-project
 |:-----|:-----|:----------:|
 | `ag init <dir>` | 注入认知架构模板 | 否 |
 | `ag init <dir> --force` | 重新注入，覆盖已有文件 | 否 |
-| `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` | 是 |
-| `ag ask "问题"` | 回答关于项目的问题 | 是 |
+| `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` 和 `.antigravity/structure.md` | 是 |
+| `ag ask "问题"` | 结合共享上下文和受限代码探索能力回答项目问题 | 是 |
 | `ag report "内容"` | 记录发现到 `.antigravity/memory/` | 否 |
 | `ag log-decision "决策" "原因"` | 记录架构决策 | 否 |
 | `ag start-engine` | 启动完整 Agent Engine 运行时 | 是 |
@@ -154,7 +154,7 @@ ag init my-project --force
 ag refresh --workspace my-project
 ```
 
-扫描代码库（语言、框架、结构），将扫描结果送入多 Agent 管道，生成 `.antigravity/conventions.md`。下次 IDE 打开时读取到更丰富的上下文。
+扫描代码库（语言、框架、结构），将扫描结果送入多 Agent 管道，生成 `.antigravity/conventions.md`，并额外产出 `.antigravity/structure.md` 作为代码骨架图，供后续问答使用。下次 IDE 打开时读取到更丰富的上下文。
 
 ### 3. `ag ask` — 查询项目
 
@@ -162,7 +162,7 @@ ag refresh --workspace my-project
 ag ask "这个项目的认证逻辑是怎么实现的？"
 ```
 
-读取 `.antigravity/` 上下文，送入 Reviewer Agent，返回有依据的回答。
+读取 `.antigravity/structure.md`、`.antigravity/conventions.md`、项目文档和记忆日志，再通过带受限代码搜索工具的 Router-Worker ask swarm 返回有依据的回答。
 
 ### 4. 构建工具 — 零配置
 
@@ -201,16 +201,16 @@ def check_api_health(url: str) -> str:
 <details>
 <summary><b>知识中枢（Knowledge Hub）</b> — 多 Agent 项目智能管道</summary>
 
-Hub 扫描你的项目，识别语言/框架/结构，通过多 Agent 管道（OpenAI Agent SDK + LiteLLM）生成活文档：
+Hub 扫描你的项目，识别语言/框架/结构，通过多 Agent 管道（OpenAI Agent SDK + LiteLLM）生成活文档，并额外产出结构图供后续路由问答：
 
 ```bash
-# 从代码扫描生成规范文档
+# 从代码扫描生成规范文档和结构图
 ag refresh
 
 # 仅扫描上次刷新后变更的文件
 ag refresh --quick
 
-# 基于项目上下文提问
+# 基于项目上下文和实时代码证据提问
 ag ask "这个项目用了什么测试模式？"
 
 # 记录发现和决策（无需 LLM）
@@ -286,6 +286,7 @@ OPENAI_MODEL=moonshotai/kimi-k2.5
 ```bash
 $ ag refresh --workspace .
 Updated .antigravity/conventions.md
+Updated .antigravity/structure.md
 ```
 
 Kimi K2.5 生成的输出：
