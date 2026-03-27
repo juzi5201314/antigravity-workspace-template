@@ -243,9 +243,9 @@ Set `MCP_ENABLED=true` in `.env`. See [MCP docs](docs/en/MCP_INTEGRATION.md).
 </details>
 
 <details>
-<summary><b>GitNexus Integration</b> — Deep code intelligence via knowledge graph</summary>
+<summary><b>GitNexus Integration</b> — Optional deep code intelligence via knowledge graph</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is **natively integrated** into the `ag ask` pipeline. When installed, it adds three powerful tools to every AreaWorker agent:
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a **third-party tool** that builds a code knowledge graph using Tree-sitter AST parsing. Antigravity provides built-in integration hooks — when you install GitNexus separately, `ag ask` automatically detects it and unlocks three additional tools:
 
 | Tool | What it does |
 |:-----|:-------------|
@@ -253,22 +253,23 @@ Set `MCP_ENABLED=true` in `.env`. See [MCP docs](docs/en/MCP_INTEGRATION.md).
 | `gitnexus_context` | 360-degree symbol view: callers, callees, references, definition |
 | `gitnexus_impact` | Blast radius analysis — what breaks if you change a symbol? |
 
-**Setup (optional — ag ask works fine without it, but much better with it):**
+> **Note:** GitNexus is NOT bundled with Antigravity. It is an independent project that requires separate installation via npm. Antigravity works fully without it — GitNexus is an optional enhancement for deeper code understanding.
+
+**How to enable (3 steps):**
 
 ```bash
-# Install and index your project once
+# 1. Install GitNexus (requires Node.js)
 npm install -g gitnexus
+
+# 2. Index your project (one-time, creates a local knowledge graph)
+cd my-project
 gitnexus analyze .
 
-# That's it — ag ask will auto-detect gitnexus and use it
+# 3. Use ag ask as usual — GitNexus tools are auto-detected
 ag ask "How does the authentication flow work?"
 ```
 
-**How it works:** `ask_tools.py` auto-detects whether `gitnexus` is installed. If yes, `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` are registered alongside the built-in `search_code`, `read_file`, `list_directory`, and `git_file_history` tools. If not installed, those tools are simply absent — zero overhead.
-
-**Two integration paths:**
-1. **Built-in** (default): `ag ask` Workers call `gitnexus query/context/impact` via CLI subprocess — zero config needed.
-2. **MCP**: For the full Agent Engine, add GitNexus as an MCP server in `mcp_servers.json` (config included by default).
+**How the integration works:** `ask_tools.py` checks if the `gitnexus` CLI is available on your system. If found, it registers `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` as additional tools for the AreaWorker agents. If not found, these tools are simply absent — zero overhead, no errors.
 
 ```
 ag ask without GitNexus:        ag ask with GitNexus:
@@ -276,10 +277,12 @@ ag ask without GitNexus:        ag ask with GitNexus:
   read_file                       read_file
   list_directory                  list_directory
   git_file_history                git_file_history
-                                  gitnexus_query (semantic search)
-                                  gitnexus_context (call graph)
-                                  gitnexus_impact (blast radius)
+                                + gitnexus_query (semantic search)
+                                + gitnexus_context (call graph)
+                                + gitnexus_impact (blast radius)
 ```
+
+**Alternative: MCP mode** — For the full Agent Engine runtime, GitNexus also provides an MCP server. A pre-configured entry is included in `mcp_servers.json` (disabled by default). Enable it with `gitnexus mcp` and set `"enabled": true`.
 </details>
 
 <details>

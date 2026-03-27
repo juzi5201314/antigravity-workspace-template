@@ -243,9 +243,9 @@ Configura `MCP_ENABLED=true` en `.env`. Ver [docs MCP](docs/es/MCP_INTEGRATION.m
 </details>
 
 <details>
-<summary><b>Integración GitNexus</b> — Inteligencia profunda de código via grafo de conocimiento</summary>
+<summary><b>Integración GitNexus</b> — Inteligencia profunda de código opcional (herramienta de terceros)</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) está **integrado nativamente** en el pipeline de `ag ask`. Cuando está instalado, cada agente AreaWorker obtiene tres herramientas adicionales:
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) es una **herramienta de terceros** que construye un grafo de conocimiento de código usando Tree-sitter AST. Antigravity proporciona hooks de integración incorporados — cuando instalas GitNexus por separado, `ag ask` lo detecta automáticamente y desbloquea tres herramientas adicionales:
 
 | Herramienta | Función |
 |:------------|:--------|
@@ -253,17 +253,23 @@ Configura `MCP_ENABLED=true` en `.env`. Ver [docs MCP](docs/es/MCP_INTEGRATION.m
 | `gitnexus_context` | Vista 360° de un símbolo: llamadores, llamados, referencias, definición |
 | `gitnexus_impact` | Análisis de radio de explosión — ¿qué se rompe si cambias un símbolo? |
 
-**Configuración (opcional — ag ask funciona sin él, pero mucho mejor con él):**
+> **Nota:** GitNexus **NO** viene incluido con Antigravity. Es un proyecto independiente que requiere instalación separada vía npm. Antigravity funciona completamente sin él — GitNexus es una mejora opcional para comprensión más profunda del código.
+
+**Cómo habilitar (3 pasos):**
 
 ```bash
+# 1. Instalar GitNexus (requiere Node.js)
 npm install -g gitnexus
+
+# 2. Indexar tu proyecto (operación única, crea un grafo local)
+cd my-project
 gitnexus analyze .
 
-# Eso es todo — ag ask lo detecta y lo usa automáticamente
+# 3. Usar ag ask como siempre — las herramientas GitNexus se detectan automáticamente
 ag ask "¿Cómo funciona el flujo de autenticación?"
 ```
 
-**Cómo funciona:** `ask_tools.py` detecta automáticamente si `gitnexus` está instalado. Si está disponible, registra `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` junto con las herramientas integradas. Si no está instalado, sin impacto — cero overhead.
+**Cómo funciona la integración:** `ask_tools.py` verifica si el CLI `gitnexus` está disponible en tu sistema. Si lo encuentra, registra `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` como herramientas adicionales. Si no lo encuentra, estas herramientas simplemente no aparecen — cero overhead, sin errores.
 </details>
 
 <details>

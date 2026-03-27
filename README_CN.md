@@ -243,9 +243,9 @@ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 </details>
 
 <details>
-<summary><b>GitNexus 集成</b> — 基于知识图谱的深度代码智能</summary>
+<summary><b>GitNexus 集成</b> — 可选的深度代码智能增强（第三方工具）</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 已**原生集成**到 `ag ask` 管道中。安装后，每个 AreaWorker agent 自动获得三个强化工具：
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 是一个**第三方工具**，通过 Tree-sitter AST 解析构建代码知识图谱。Antigravity 提供了内置的集成接口——当你单独安装 GitNexus 后，`ag ask` 会自动检测并解锁三个额外工具：
 
 | 工具 | 功能 |
 |:-----|:-----|
@@ -253,17 +253,23 @@ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 | `gitnexus_context` | 符号 360° 视图：调用者、被调用者、引用、定义 |
 | `gitnexus_impact` | 变更爆炸半径分析 — 修改一个符号会影响什么？ |
 
-**安装（可选 — ag ask 不装也能用，装了效果更好）：**
+> **注意：** GitNexus **不随** Antigravity 一起安装。它是一个独立项目，需要通过 npm 单独安装。Antigravity 无需 GitNexus 即可完整运行——GitNexus 只是一个可选增强，用于更深层的代码理解。
+
+**启用方式（3 步）：**
 
 ```bash
+# 1. 安装 GitNexus（需要 Node.js）
 npm install -g gitnexus
+
+# 2. 索引你的项目（一次性操作，在本地创建知识图谱）
+cd my-project
 gitnexus analyze .
 
-# 就这样 — ag ask 会自动检测并启用
+# 3. 像平常一样使用 ag ask — GitNexus 工具会被自动检测到
 ag ask "认证流程是怎么工作的？"
 ```
 
-**工作原理：** `ask_tools.py` 自动检测 `gitnexus` 是否安装。有则注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact`，与内置的 `search_code`、`read_file` 等工具并肩工作。未安装则完全无感——零开销。
+**集成原理：** `ask_tools.py` 检查系统中是否有 `gitnexus` CLI。如果找到，就注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` 作为 AreaWorker agent 的额外工具。如果未找到，这些工具不会出现——零开销、无报错。
 </details>
 
 <details>
