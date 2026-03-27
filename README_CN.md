@@ -40,32 +40,54 @@
 
 > AI Agent 的能力上限 = **它能读到的上下文质量。**
 
-每个 AI IDE 都会读项目文件。但缺乏结构时，Agent 会产生幻觉、忘记规范、生成不一致的代码。Antigravity 解决这些问题：
+> **不要给 AI IDE 一本百科全书，要给它一个代码库的 ChatGPT。**
+
+大多数团队把 `CLAUDE.md` 塞满几千行文档，Agent 读完大半忘掉。Antigravity 反其道而行：不是静态知识堆砌，而是给 AI IDE 提供一个**实时问答引擎**——背后是真正读懂你代码的多 Agent 流水线。
+
+```
+传统做法：                           Antigravity 做法：
+  CLAUDE.md = 5000 行文档              Claude Code 调用 ask_project("auth 怎么工作的？")
+  Agent 全部读入，大半遗忘              Router-Worker 读真实源码，返回精准答案
+  幻觉率居高不下                       有据可查，带文件路径和行号
+```
 
 | 痛点 | 没有 Antigravity | 有 Antigravity |
 |:----|:----------------|:--------------|
 | Agent 忘记代码风格 | 反复纠正同样的问题 | 读取 `.antigravity/conventions.md` —— 一次到位 |
 | 接手新代码库 | Agent 只能猜测架构 | `ag refresh` 自动扫描并文档化 |
 | 切换 IDE | 每个 IDE 规则不同 | 一个 `.antigravity/` 目录 —— 所有 IDE 共享 |
-| 问"X 怎么实现的？" | Agent 胡乱翻文件 | `ag ask` 基于项目上下文给出准确回答 |
+| 问"X 怎么实现的？" | Agent 胡乱翻文件 | `ask_project` MCP 工具返回带行号的精准答案 |
 
-架构即**文件**，而非插件。`.cursorrules`、`CLAUDE.md`、`.antigravity/rules.md` —— 这些就是认知架构本身。跨 IDE、跨 LLM、零平台锁定。
+架构是**文件 + 实时问答引擎**，而非插件。跨 IDE、跨 LLM、零平台锁定。
 
 ---
 
 ## 快速开始
 
+**方案 A —— 仅注入上下文文件（任意 IDE，无需 LLM）**
 ```bash
-# 安装 CLI（轻量，无 LLM 依赖）
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-
-# 将认知架构注入任意项目
 ag init my-project && cd my-project
-
-# 用 Cursor / Claude Code / Windsurf / 任何 AI IDE 打开 → 开始提示
+# IDE 自动读取 .antigravity/rules.md、.cursorrules、CLAUDE.md、AGENTS.md
 ```
 
-就这么简单。你的 IDE 会自动读取 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`。
+**方案 B —— 完整配置，含实时问答引擎（推荐 Claude Code 用户）**
+```bash
+# 1. 注入上下文文件
+pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
+ag init my-project && cd my-project
+
+# 2. 安装引擎
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
+
+# 3. 在 .env 配置 LLM API Key，然后扫描项目
+ag refresh
+
+# 4. 注册为 MCP 服务器 —— Claude Code 可直接调用 ask_project 工具
+claude mcp add antigravity ag-mcp -- --workspace $(pwd)
+```
+
+配置完成后，Claude Code 需要了解代码库时，会调用 `ask_project("...")` 而不是自己乱猜。
 
 ---
 
@@ -100,6 +122,7 @@ ag init my-project && cd my-project
 | `ag init <dir> --force` | 重新注入，覆盖已有文件 | 否 |
 | `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` 和 `.antigravity/structure.md` | 是 |
 | `ag ask "问题"` | 结合共享上下文和受限代码探索能力回答项目问题 | 是 |
+| `ag-mcp --workspace <dir>` | **启动 MCP 服务器** —— 向 Claude Code 暴露 `ask_project` + `refresh_project` 工具 | 是 |
 | `ag report "内容"` | 记录发现到 `.antigravity/memory/` | 否 |
 | `ag log-decision "决策" "原因"` | 记录架构决策 | 否 |
 | `ag start-engine` | 启动完整 Agent Engine 运行时 | 是 |
@@ -197,6 +220,40 @@ def check_api_health(url: str) -> str:
 ---
 
 ## 进阶功能
+
+<details>
+<summary><b>MCP 服务器 — 给 Claude Code 一个代码库专属 ChatGPT</b></summary>
+
+Claude Code 不再需要读数百个文档文件——它可以直接调用 `ask_project` 工具，背后是真正读懂你代码的 Router-Worker 多 Agent 群，返回带文件路径和行号的精准答案。
+
+**配置步骤：**
+
+```bash
+# 安装引擎
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
+
+# 先扫描项目（构建知识库）
+ag refresh --workspace /path/to/project
+
+# 注册为 Claude Code 的 MCP 服务器
+claude mcp add antigravity ag-mcp -- --workspace /path/to/project
+```
+
+**向 Claude Code 暴露的工具：**
+
+| 工具 | 功能 |
+|:-----|:-----|
+| `ask_project(question)` | 回答任何代码库问题——代码在哪、为什么这样决策、模块间如何关联。返回文件路径 + 行号。 |
+| `refresh_project(quick?)` | 重大改动后重建知识库。`quick=true` 只扫描变更文件。 |
+
+**效果对比：**
+
+| | 没有 ag-mcp | 有 ag-mcp |
+|--|------------|-----------|
+| Claude Code 想了解 auth 模块 | 自己 grep，猜测，有时出错 | 调用 `ask_project("auth 怎么工作的？")` → 精准定位到 `src/auth.py:42` |
+| 问"为什么用 JWT？" | 不知道历史背景 | 从 git 历史 + decisions/log.md 给出决策原因 |
+
+</details>
 
 <details>
 <summary><b>知识中枢（Knowledge Hub）</b> — 多 Agent 项目智能管道</summary>

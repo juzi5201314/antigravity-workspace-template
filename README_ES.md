@@ -40,32 +40,54 @@ Idioma: [English](README.md) | [中文](README_CN.md) | **Español**
 
 > El techo de capacidad de un AI Agent = **la calidad del contexto que puede leer.**
 
-Cada IDE de IA lee archivos del proyecto. Pero sin estructura, los agentes alucinan, olvidan convenciones y producen código inconsistente. Antigravity resuelve esto:
+> **No le des a tu IDE de IA una enciclopedia. Dale un ChatGPT para tu codebase.**
+
+La mayoría de los equipos llenan `CLAUDE.md` con miles de líneas de documentación que el agente lee y olvida. Antigravity toma el camino opuesto: en lugar de un volcado estático de conocimiento, le da a tu IDE de IA un **motor de Q&A en vivo** respaldado por un pipeline multi-agente que realmente lee tu código.
+
+```
+Enfoque tradicional:                    Enfoque Antigravity:
+  CLAUDE.md = 5000 líneas de docs         Claude Code llama ask_project("¿cómo funciona auth?")
+  El agente lee todo, olvida la mitad     Router-Worker lee código real, devuelve respuesta exacta
+  La tasa de alucinación sigue alta       Fundamentado en código real, rutas de archivo y git
+```
 
 | Problema | Sin Antigravity | Con Antigravity |
 |:---------|:---------------|:----------------|
 | El agente olvida el estilo de código | Repites las mismas correcciones | Lee `.antigravity/conventions.md` — lo hace bien a la primera |
 | Incorporar un codebase nuevo | El agente adivina la arquitectura | `ag refresh` escanea y documenta automáticamente |
 | Cambiar entre IDEs | Reglas diferentes en cada uno | Una carpeta `.antigravity/` — todos los IDEs la comparten |
-| Preguntar "¿cómo funciona X?" | El agente lee archivos al azar | `ag ask` da respuestas fundamentadas en el contexto del proyecto |
+| Preguntar "¿cómo funciona X?" | El agente lee archivos al azar | La herramienta MCP `ask_project` devuelve respuestas con números de línea |
 
-La arquitectura son **archivos**, no plugins. `.cursorrules`, `CLAUDE.md`, `.antigravity/rules.md` — estos *son* la arquitectura cognitiva. Portable entre cualquier IDE, cualquier LLM, cero lock-in.
+La arquitectura son **archivos + un motor Q&A en vivo**, no plugins. Portable entre cualquier IDE, cualquier LLM, cero lock-in.
 
 ---
 
 ## Inicio Rápido
 
+**Opción A — Solo archivos de contexto (cualquier IDE, sin LLM)**
 ```bash
-# Instalar CLI (ligero, sin dependencias de LLM)
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-
-# Inyectar arquitectura cognitiva en cualquier proyecto
 ag init mi-proyecto && cd mi-proyecto
-
-# Abrir en Cursor / Claude Code / Windsurf / cualquier IDE de IA → empezar a trabajar
+# Tu IDE lee automáticamente .antigravity/rules.md, .cursorrules, CLAUDE.md, AGENTS.md
 ```
 
-Eso es todo. Tu IDE ahora lee `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md` automáticamente.
+**Opción B — Configuración completa con motor Q&A en vivo (recomendado para Claude Code)**
+```bash
+# 1. Inyectar archivos de contexto
+pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
+ag init mi-proyecto && cd mi-proyecto
+
+# 2. Instalar el motor
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
+
+# 3. Configurar .env con tu API key de LLM, luego escanear el proyecto
+ag refresh
+
+# 4. Registrar como servidor MCP — Claude Code puede usar ask_project como herramienta
+claude mcp add antigravity ag-mcp -- --workspace $(pwd)
+```
+
+Ahora cuando Claude Code necesita entender tu codebase, llama `ask_project("...")` en lugar de adivinar.
 
 ---
 
@@ -100,6 +122,7 @@ Eso es todo. Tu IDE ahora lee `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.m
 | `ag init <dir> --force` | Re-inyectar, sobrescribiendo archivos existentes | No |
 | `ag refresh` | Escanear proyecto, generar `.antigravity/conventions.md` y `.antigravity/structure.md` | Sí |
 | `ag ask "pregunta"` | Responder preguntas usando contexto compartido y exploración de código acotada | Sí |
+| `ag-mcp --workspace <dir>` | **Iniciar servidor MCP** — expone `ask_project` + `refresh_project` a Claude Code | Sí |
 | `ag report "mensaje"` | Registrar un hallazgo en `.antigravity/memory/` | No |
 | `ag log-decision "qué" "por qué"` | Registrar una decisión arquitectónica | No |
 | `ag start-engine` | Lanzar el runtime completo del Agent Engine | Sí |
@@ -197,6 +220,36 @@ Todos generados por `ag init`. Todos referencian `.antigravity/` para contexto c
 ---
 
 ## Funciones Avanzadas
+
+<details>
+<summary><b>Servidor MCP — Dale a Claude Code un ChatGPT para tu codebase</b></summary>
+
+Claude Code no necesita leer cientos de archivos de documentación — puede llamar `ask_project` como herramienta en vivo, respaldada por un enjambre Router-Worker que realmente lee tu código fuente y devuelve respuestas precisas con rutas de archivo y números de línea.
+
+**Configuración:**
+
+```bash
+# Instalar motor
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
+
+# Escanear proyecto primero (construye la base de conocimiento)
+ag refresh --workspace /ruta/al/proyecto
+
+# Registrar como servidor MCP en Claude Code
+claude mcp add antigravity ag-mcp -- --workspace /ruta/al/proyecto
+```
+
+**Herramientas expuestas a Claude Code:**
+
+| Herramienta | Qué hace |
+|:------------|:---------|
+| `ask_project(pregunta)` | Responde cualquier pregunta sobre el codebase — dónde vive el código, por qué se tomaron decisiones, cómo se conectan los módulos. Devuelve rutas de archivo + números de línea. |
+| `refresh_project(quick?)` | Reconstruir la base de conocimiento tras cambios significativos. `quick=true` solo escanea archivos modificados. |
+
+**Sin ag-mcp:** Claude Code adivina, lee archivos aleatorios, a veces se equivoca.
+**Con ag-mcp:** Claude Code consulta el motor de conocimiento y obtiene respuestas basadas en evidencia real.
+
+</details>
 
 <details>
 <summary><b>Knowledge Hub</b> — Pipeline de inteligencia de proyecto multi-agente</summary>
