@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 ag-engine = "antigravity_engine._cli_entry:engine_main"
 ag-hub = "antigravity_engine._cli_entry:hub_main"
+ag-mcp = "antigravity_engine.hub.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]
