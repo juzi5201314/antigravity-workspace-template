@@ -243,6 +243,46 @@ Set `MCP_ENABLED=true` in `.env`. See [MCP docs](docs/en/MCP_INTEGRATION.md).
 </details>
 
 <details>
+<summary><b>GitNexus Integration</b> — Deep code intelligence via knowledge graph</summary>
+
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is **natively integrated** into the `ag ask` pipeline. When installed, it adds three powerful tools to every AreaWorker agent:
+
+| Tool | What it does |
+|:-----|:-------------|
+| `gitnexus_query` | Hybrid search (BM25 + semantic) — better than grep for "how does auth work?" |
+| `gitnexus_context` | 360-degree symbol view: callers, callees, references, definition |
+| `gitnexus_impact` | Blast radius analysis — what breaks if you change a symbol? |
+
+**Setup (optional — ag ask works fine without it, but much better with it):**
+
+```bash
+# Install and index your project once
+npm install -g gitnexus
+gitnexus analyze .
+
+# That's it — ag ask will auto-detect gitnexus and use it
+ag ask "How does the authentication flow work?"
+```
+
+**How it works:** `ask_tools.py` auto-detects whether `gitnexus` is installed. If yes, `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` are registered alongside the built-in `search_code`, `read_file`, `list_directory`, and `git_file_history` tools. If not installed, those tools are simply absent — zero overhead.
+
+**Two integration paths:**
+1. **Built-in** (default): `ag ask` Workers call `gitnexus query/context/impact` via CLI subprocess — zero config needed.
+2. **MCP**: For the full Agent Engine, add GitNexus as an MCP server in `mcp_servers.json` (config included by default).
+
+```
+ag ask without GitNexus:        ag ask with GitNexus:
+  search_code (grep)              search_code (grep)
+  read_file                       read_file
+  list_directory                  list_directory
+  git_file_history                git_file_history
+                                  gitnexus_query (semantic search)
+                                  gitnexus_context (call graph)
+                                  gitnexus_impact (blast radius)
+```
+</details>
+
+<details>
 <summary><b>Multi-Agent Swarm</b> — Router-Worker orchestration for complex tasks</summary>
 
 ```python
@@ -383,6 +423,13 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
         <b>goodmorning10</b>
       </a><br/>
       <sub>Enhanced <code>ag ask</code> context loading — added CONTEXT.md, AGENTS.md, and memory/*.md as context sources (#29)</sub>
+    </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/abhigyanpatwari">
+        <img src="https://github.com/abhigyanpatwari.png" width="80" /><br/>
+        <b>Abhigyan Patwari</b>
+      </a><br/>
+      <sub><a href="https://github.com/abhigyanpatwari/GitNexus">GitNexus</a> — code knowledge graph natively integrated into <code>ag ask</code> for symbol search, call graphs, and impact analysis</sub>
     </td>
   </tr>
 </table>

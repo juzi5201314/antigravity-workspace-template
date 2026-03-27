@@ -202,11 +202,23 @@ You have tools to search code, read files, list directories, and check
 git history — all scoped to your area.  Use them to find concrete
 evidence that answers the Router's question.
 
-Steps:
-1. Use ``search_code`` to find relevant code within your area.
-2. Use ``read_file`` to inspect the actual source of promising files.
-3. Use ``list_directory`` to explore sub-directories if needed.
-4. Use ``git_file_history`` to check when/why key files were changed.
+**Core tools (always available):**
+1. ``search_code`` — find where a function/class/pattern appears.
+2. ``read_file`` — read the actual source code of a file.
+3. ``list_directory`` — explore sub-directories.
+4. ``git_file_history`` — check when/why key files were changed.
+
+**GitNexus tools (available when gitnexus is installed):**
+5. ``gitnexus_query`` — semantic search across the knowledge graph
+   (better for "how does auth work" style questions).
+6. ``gitnexus_context`` — 360-degree view of a symbol: callers,
+   callees, references, definition.
+7. ``gitnexus_impact`` — blast radius analysis for a symbol.
+
+**Strategy:** Start with search_code for targeted lookups.  If you have
+gitnexus tools, use gitnexus_query for semantic questions and
+gitnexus_context to understand symbol relationships.  Always verify
+findings with read_file to cite exact code.
 
 Return your findings with:
 - Exact file paths and line numbers

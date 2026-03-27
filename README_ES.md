@@ -243,6 +243,30 @@ Configura `MCP_ENABLED=true` en `.env`. Ver [docs MCP](docs/es/MCP_INTEGRATION.m
 </details>
 
 <details>
+<summary><b>Integración GitNexus</b> — Inteligencia profunda de código via grafo de conocimiento</summary>
+
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) está **integrado nativamente** en el pipeline de `ag ask`. Cuando está instalado, cada agente AreaWorker obtiene tres herramientas adicionales:
+
+| Herramienta | Función |
+|:------------|:--------|
+| `gitnexus_query` | Búsqueda híbrida (BM25 + semántica) — superior a grep para consultas semánticas |
+| `gitnexus_context` | Vista 360° de un símbolo: llamadores, llamados, referencias, definición |
+| `gitnexus_impact` | Análisis de radio de explosión — ¿qué se rompe si cambias un símbolo? |
+
+**Configuración (opcional — ag ask funciona sin él, pero mucho mejor con él):**
+
+```bash
+npm install -g gitnexus
+gitnexus analyze .
+
+# Eso es todo — ag ask lo detecta y lo usa automáticamente
+ag ask "¿Cómo funciona el flujo de autenticación?"
+```
+
+**Cómo funciona:** `ask_tools.py` detecta automáticamente si `gitnexus` está instalado. Si está disponible, registra `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` junto con las herramientas integradas. Si no está instalado, sin impacto — cero overhead.
+</details>
+
+<details>
 <summary><b>Swarm Multi-Agente</b> — Orquestación Router-Worker para tareas complejas</summary>
 
 ```python
@@ -383,6 +407,13 @@ Logged decision to .antigravity/decisions/log.md
         <b>goodmorning10</b>
       </a><br/>
       <sub>Mejora de carga de contexto en <code>ag ask</code> — añadió CONTEXT.md, AGENTS.md y memory/*.md como fuentes de contexto (#29)</sub>
+    </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/abhigyanpatwari">
+        <img src="https://github.com/abhigyanpatwari.png" width="80" /><br/>
+        <b>Abhigyan Patwari</b>
+      </a><br/>
+      <sub><a href="https://github.com/abhigyanpatwari/GitNexus">GitNexus</a> — grafo de conocimiento de código integrado nativamente en <code>ag ask</code> para búsqueda de símbolos, grafos de llamadas y análisis de impacto</sub>
     </td>
   </tr>
 </table>

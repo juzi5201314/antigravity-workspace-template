@@ -56,6 +56,123 @@ def _should_skip_dir(name: str) -> bool:
     return name in _SKIP_DIRS or name.endswith(".egg-info")
 
 
+def _is_gitnexus_available() -> bool:
+    """Check if the ``gitnexus`` CLI is installed and reachable."""
+    try:
+        subprocess.run(
+            ["gitnexus", "--version"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _run_gitnexus(workspace: Path, args: list[str], timeout: int = 30) -> str:
+    """Run a gitnexus CLI command and return stdout.
+
+    Args:
+        workspace: Project root.
+        args: CLI arguments after ``gitnexus``.
+        timeout: Seconds before giving up.
+
+    Returns:
+        stdout text, or an error string.
+    """
+    try:
+        result = subprocess.run(
+            ["gitnexus", *args],
+            capture_output=True,
+            text=True,
+            cwd=str(workspace),
+            timeout=timeout,
+            check=False,
+        )
+        if result.returncode != 0:
+            err = result.stderr.strip() or "unknown error"
+            return f"GitNexus error: {err}"
+        return result.stdout.strip() or "(no output)"
+    except FileNotFoundError:
+        return "GitNexus is not installed."
+    except subprocess.TimeoutExpired:
+        return "GitNexus query timed out."
+
+
+def _create_gitnexus_tools(workspace: Path) -> dict[str, Callable]:
+    """Create GitNexus-powered tools if gitnexus is installed.
+
+    These tools provide deep code intelligence: symbol search with
+    semantic ranking, call-graph analysis, and impact/blast-radius
+    analysis.  They complement the basic search_code/read_file tools.
+
+    When gitnexus is not installed, returns an empty dict (zero cost).
+
+    Args:
+        workspace: Absolute path to the project root.
+
+    Returns:
+        Dict of tool-name to callable, empty if gitnexus unavailable.
+    """
+    if not _is_gitnexus_available():
+        return {}
+
+    ws = workspace.resolve()
+
+    def gitnexus_query(query: str) -> str:
+        """Search the project's code knowledge graph using hybrid search.
+
+        This is more powerful than search_code for semantic queries like
+        "authentication flow" or "database connection handling".  It uses
+        BM25 + semantic ranking and returns symbols with context.
+
+        Args:
+            query: Natural-language or symbol-name query.
+
+        Returns:
+            Ranked search results with file paths, symbols, and context.
+        """
+        return _run_gitnexus(ws, ["query", query])
+
+    def gitnexus_context(symbol: str) -> str:
+        """Get a 360-degree view of a symbol: definition, callers, callees, and references.
+
+        Use this to understand how a function, class, or variable fits
+        into the broader codebase — who calls it, what it calls, and
+        where it is referenced.
+
+        Args:
+            symbol: Fully-qualified or short symbol name (e.g. "login",
+                "UserService", "auth.verify_token").
+
+        Returns:
+            Symbol definition, categorized references, and relationships.
+        """
+        return _run_gitnexus(ws, ["context", symbol])
+
+    def gitnexus_impact(symbol: str) -> str:
+        """Analyze the blast radius of changing a symbol.
+
+        Use this to understand what would break or need updating if a
+        function, class, or module were modified.  Returns affected
+        files, dependent symbols, and confidence scores.
+
+        Args:
+            symbol: The symbol to analyze impact for.
+
+        Returns:
+            Impact analysis with affected files and confidence scores.
+        """
+        return _run_gitnexus(ws, ["impact", symbol])
+
+    return {
+        "gitnexus_query": gitnexus_query,
+        "gitnexus_context": gitnexus_context,
+        "gitnexus_impact": gitnexus_impact,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool factory — returns workspace-bound tool functions
 # ---------------------------------------------------------------------------
@@ -254,9 +371,16 @@ def create_ask_tools(workspace: Path) -> dict[str, Callable]:
         except FileNotFoundError:
             return "Git is not available."
 
-    return {
+    tools: dict[str, Callable] = {
         "search_code": search_code,
         "read_file": read_file,
         "list_directory": list_directory,
         "git_file_history": git_file_history,
     }
+
+    # ── GitNexus tools (optional — only registered if gitnexus is installed) ──
+
+    gitnexus_tools = _create_gitnexus_tools(ws)
+    tools.update(gitnexus_tools)
+
+    return tools

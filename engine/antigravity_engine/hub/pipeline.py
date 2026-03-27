@@ -162,7 +162,7 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
 
-    result = await Runner.run(agent, prompt)
+    result = await Runner.run(agent, prompt, max_turns=25)
 
     print("[3/3] Synthesizing answer...", file=sys.stderr)
 

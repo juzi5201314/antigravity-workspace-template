@@ -243,6 +243,30 @@ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 </details>
 
 <details>
+<summary><b>GitNexus 集成</b> — 基于知识图谱的深度代码智能</summary>
+
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 已**原生集成**到 `ag ask` 管道中。安装后，每个 AreaWorker agent 自动获得三个强化工具：
+
+| 工具 | 功能 |
+|:-----|:-----|
+| `gitnexus_query` | 混合搜索（BM25 + 语义）— 语义查询远优于 grep |
+| `gitnexus_context` | 符号 360° 视图：调用者、被调用者、引用、定义 |
+| `gitnexus_impact` | 变更爆炸半径分析 — 修改一个符号会影响什么？ |
+
+**安装（可选 — ag ask 不装也能用，装了效果更好）：**
+
+```bash
+npm install -g gitnexus
+gitnexus analyze .
+
+# 就这样 — ag ask 会自动检测并启用
+ag ask "认证流程是怎么工作的？"
+```
+
+**工作原理：** `ask_tools.py` 自动检测 `gitnexus` 是否安装。有则注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact`，与内置的 `search_code`、`read_file` 等工具并肩工作。未安装则完全无感——零开销。
+</details>
+
+<details>
 <summary><b>多 Agent Swarm</b> — Router-Worker 编排处理复杂任务</summary>
 
 ```python
@@ -383,6 +407,13 @@ Logged decision to .antigravity/decisions/log.md
         <b>goodmorning10</b>
       </a><br/>
       <sub>增强 <code>ag ask</code> 上下文加载 — 新增 CONTEXT.md、AGENTS.md 和 memory/*.md 作为上下文来源 (#29)</sub>
+    </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/abhigyanpatwari">
+        <img src="https://github.com/abhigyanpatwari.png" width="80" /><br/>
+        <b>Abhigyan Patwari</b>
+      </a><br/>
+      <sub><a href="https://github.com/abhigyanpatwari/GitNexus">GitNexus</a> — 代码知识图谱原生集成到 <code>ag ask</code>，提供符号搜索、调用图和影响分析</sub>
     </td>
   </tr>
 </table>
