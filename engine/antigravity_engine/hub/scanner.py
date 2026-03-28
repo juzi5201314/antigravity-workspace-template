@@ -1,9 +1,13 @@
 """Project scanner — pure Python, no LLM dependency."""
 from __future__ import annotations
 
+import mimetypes
 import json
+import os
 import subprocess
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -13,8 +17,39 @@ _CONFIG_LINE_LIMIT = 200
 _CONFIG_TOTAL_LIMIT = 30_000
 # Maximum lines to read from an entry-point file.
 _ENTRY_POINT_LINE_LIMIT = 50
+_DEFAULT_SCAN_TIMEOUT_SECONDS = 30.0
+_DEFAULT_SCAN_MAX_FILES = 5000
+_DEFAULT_SCAN_SAMPLE_FILES = 50
 
-
+_DOCUMENTATION_EXTS = {".md", ".rst", ".txt", ".adoc", ".pdf"}
+_DATA_EXTS = {
+    ".csv",
+    ".tsv",
+    ".json",
+    ".jsonl",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".sql",
+    ".db",
+    ".sqlite",
+    ".parquet",
+}
+_MEDIA_EXTS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+}
 # File extensions → language names
 _LANG_MAP: dict[str, str] = {
     ".py": "Python",
@@ -45,6 +80,8 @@ _LANG_MAP: dict[str, str] = {
     ".scss": "SCSS",
     ".sql": "SQL",
 }
+
+_TEXT_EXTS = set(_LANG_MAP) | _DOCUMENTATION_EXTS | _DATA_EXTS | {".env", ".log"}
 
 # Marker files → framework/tool names
 _FRAMEWORK_MARKERS: dict[str, str] = {
@@ -118,6 +155,16 @@ class ScanReport:
     config_contents: dict[str, str] = field(default_factory=dict)
     entry_points: dict[str, str] = field(default_factory=dict)
     git_summary: str = ""
+    walked_file_count: int = 0
+    type_distribution: dict[str, int] = field(default_factory=dict)
+    scan_elapsed_seconds: float = 0.0
+    timed_out: bool = False
+    scan_stopped_reason: str = ""
+    scanned_file_samples: list[str] = field(default_factory=list)
+    unreadable_files: int = 0
+    oversized_files: int = 0
+    binary_files: int = 0
+    file_metadata: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 def _is_venv_dir(path: Path) -> bool:
@@ -176,6 +223,145 @@ def _should_skip(path: Path, extra_skip: set[str] | None = None) -> bool:
         if part in skip or part.endswith(".egg-info"):
             return True
     return False
+
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    """Read an integer environment variable with fallback and lower bound."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
+def _env_float(name: str, default: float, *, minimum: float) -> float:
+    """Read a float environment variable with fallback and lower bound."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
+def _classify_file(path: Path) -> tuple[str, str, bool]:
+    """Classify a file into a high-level type with mime and binary flag."""
+    ext = path.suffix.lower()
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+    if ext in _LANG_MAP:
+        return "code", mime, False
+    if ext in _DOCUMENTATION_EXTS:
+        return "documentation", mime, ext == ".pdf"
+    if ext in _DATA_EXTS:
+        return "data", mime, ext in {".db", ".sqlite", ".parquet"}
+    if ext in _MEDIA_EXTS:
+        return "media", mime, True
+
+    try:
+        sample = path.read_bytes()[:2048]
+    except OSError:
+        return "other", mime, False
+
+    is_binary = b"\x00" in sample
+    if is_binary:
+        return "binary", mime, True
+    return "other", mime, False
+
+
+def _update_scan_stats(
+    report: ScanReport,
+    rel: Path,
+    item: Path,
+    sample_limit: int,
+) -> None:
+    """Update file-level counters and metadata for a scanned file."""
+    rel_str = rel.as_posix()
+    report.walked_file_count += 1
+    report.file_count += 1
+
+    ext = item.suffix.lower()
+    if ext in _LANG_MAP:
+        lang = _LANG_MAP[ext]
+        report.languages[lang] = report.languages.get(lang, 0) + 1
+
+    try:
+        size = item.stat().st_size
+    except OSError:
+        report.unreadable_files += 1
+        return
+
+    file_type, mime, is_binary = _classify_file(item)
+    report.type_distribution[file_type] = report.type_distribution.get(file_type, 0) + 1
+    if is_binary:
+        report.binary_files += 1
+    if size > 1_000_000:
+        report.oversized_files += 1
+
+    report.file_metadata[rel_str] = {
+        "type": file_type,
+        "size": size,
+        "mime": mime,
+        "is_binary": is_binary,
+    }
+
+    if len(report.scanned_file_samples) < sample_limit:
+        report.scanned_file_samples.append(rel_str)
+
+
+def _finalize_scan_report(report: ScanReport, root: Path, venv_dirs: set[str]) -> None:
+    """Fill derived report fields after the file scan loop."""
+    report.languages = dict(
+        sorted(report.languages.items(), key=lambda item: item[1], reverse=True)
+    )
+
+    skip_dirs = _SKIP_DIRS | venv_dirs
+    report.top_dirs = sorted(
+        d.name
+        for d in root.iterdir()
+        if d.is_dir()
+        and not d.name.startswith(".")
+        and d.name not in skip_dirs
+        and not d.name.endswith(".egg-info")
+    )
+
+    test_dir_names = {"tests", "test", "spec", "specs", "__tests__"}
+    report.has_tests = any(
+        d.is_dir() and d.name in test_dir_names
+        for d in root.rglob("*")
+        if d.is_dir() and not _should_skip(d.relative_to(root), venv_dirs)
+    )
+    report.has_pytest = any(
+        (root / f).exists() for f in ("pytest.ini", "conftest.py")
+    ) or any(
+        d.is_file()
+        and d.name in {"conftest.py", "pytest.ini"}
+        for d in root.rglob("*")
+        if d.is_file()
+        and not _should_skip(d.relative_to(root), venv_dirs)
+        and d.name in {"conftest.py", "pytest.ini"}
+    )
+    report.has_ci = (root / ".github" / "workflows").exists() or (root / ".gitlab-ci.yml").exists()
+    report.has_docker = (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists()
+
+    for name in ("README.md", "readme.md", "README.rst", "README"):
+        readme = root / name
+        if readme.exists():
+            try:
+                lines = readme.read_text(encoding="utf-8").splitlines()[:10]
+                report.readme_snippet = "\n".join(lines)
+            except OSError:
+                pass
+            break
+
+    report.config_contents = _read_config_files(root)
+    report.entry_points = _read_entry_points(root, report.config_contents)
+    report.git_summary = _extract_git_summary(root)
 
 
 # Config files worth reading — relative paths (or glob patterns handled specially).
@@ -376,6 +562,135 @@ def _extract_git_summary(root: Path) -> str:
         pass
 
     return "\n\n".join(parts)
+
+
+def build_knowledge_graph(root: Path, report: ScanReport) -> dict[str, object]:
+    """Build a lightweight project knowledge graph from scan metadata."""
+    workspace_id = f"workspace:{root.resolve()}"
+    nodes: list[dict[str, object]] = [
+        {
+            "id": workspace_id,
+            "type": "workspace",
+            "label": root.name or str(root),
+        }
+    ]
+    edges: list[dict[str, str]] = []
+
+    for lang, count in report.languages.items():
+        lang_id = f"language:{lang.lower().replace(' ', '_')}"
+        nodes.append({"id": lang_id, "type": "language", "label": lang, "count": count})
+        edges.append({"from": workspace_id, "to": lang_id, "type": "uses_language"})
+
+    for framework in report.frameworks:
+        fw_id = f"framework:{framework.lower().replace(' ', '_').replace('/', '_')}"
+        nodes.append({"id": fw_id, "type": "framework", "label": framework})
+        edges.append({"from": workspace_id, "to": fw_id, "type": "uses_framework"})
+
+    for directory in report.top_dirs:
+        dir_id = f"dir:{directory}"
+        nodes.append({"id": dir_id, "type": "directory", "label": directory})
+        edges.append({"from": workspace_id, "to": dir_id, "type": "contains"})
+
+    for rel, meta in list(report.file_metadata.items())[:500]:
+        file_id = f"file:{rel}"
+        nodes.append(
+            {
+                "id": file_id,
+                "type": str(meta.get("type", "file")),
+                "label": rel,
+                "size": int(meta.get("size", 0)),
+                "mime": str(meta.get("mime", "unknown")),
+            }
+        )
+        edges.append({"from": workspace_id, "to": file_id, "type": "contains"})
+
+    return {
+        "schema": "antigravity-knowledge-graph-v1",
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "workspace": str(root.resolve()),
+        "summary": {
+            "file_count": report.file_count,
+            "walked_file_count": report.walked_file_count,
+            "languages": report.languages,
+            "frameworks": report.frameworks,
+            "type_distribution": report.type_distribution,
+        },
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def render_knowledge_graph_markdown(graph: dict[str, object]) -> str:
+    """Render a knowledge graph as Markdown for prompt/context use."""
+    summary = graph.get("summary", {})
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    lines = [
+        "# Knowledge Graph",
+        "",
+        f"- workspace: {graph.get('workspace', '')}",
+        f"- created_at_utc: {graph.get('created_at_utc', '')}",
+        f"- nodes: {len(nodes) if isinstance(nodes, list) else 0}",
+        f"- edges: {len(edges) if isinstance(edges, list) else 0}",
+        "",
+        "## Summary",
+        "```json",
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        "```",
+    ]
+
+    if isinstance(nodes, list) and nodes:
+        lines.extend(["", "## Sample Nodes"])
+        for node in nodes[:20]:
+            if not isinstance(node, dict):
+                continue
+            lines.append(
+                f"- {node.get('type', 'node')}: {node.get('label', node.get('id', ''))}"
+            )
+
+    if isinstance(edges, list) and edges:
+        lines.extend(["", "## Sample Edges"])
+        for edge in edges[:20]:
+            if not isinstance(edge, dict):
+                continue
+            lines.append(
+                f"- {edge.get('from', '')} --{edge.get('type', 'rel')}--> {edge.get('to', '')}"
+            )
+
+    return "\n".join(lines) + "\n"
+
+
+def render_knowledge_graph_mermaid(graph: dict[str, object]) -> str:
+    """Render a knowledge graph as Mermaid syntax."""
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return "graph TD\n  n_invalid[\"invalid graph\"]\n"
+
+    labels: dict[str, str] = {}
+    for node in nodes[:200]:
+        if isinstance(node, dict):
+            labels[str(node.get("id", ""))] = str(node.get("label", node.get("id", ""))).replace('"', "'")
+
+    def _mid(raw: str) -> str:
+        safe = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in raw)
+        return f"n_{safe}" if safe else "n_unknown"
+
+    lines = ["graph TD"]
+    for edge in edges[:200]:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("from", ""))
+        dst = str(edge.get("to", ""))
+        rel = str(edge.get("type", "rel"))
+        if not src or not dst:
+            continue
+        src_label = labels.get(src, src)
+        dst_label = labels.get(dst, dst)
+        lines.append(
+            f"  {_mid(src)}[\"{src_label}\"] -->|{rel}| {_mid(dst)}[\"{dst_label}\"]"
+        )
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -587,18 +902,29 @@ def full_scan(root: Path) -> ScanReport:
         ScanReport with project analysis.
     """
     report = ScanReport(root=root)
-    lang_counts: dict[str, int] = {}
-
-    # Detect venv directories by content (catches custom-named venvs)
     venv_dirs = _find_venv_dirs(root)
-    skip_dirs = _SKIP_DIRS | venv_dirs
 
-    # Detect frameworks from marker files
     for marker, name in _FRAMEWORK_MARKERS.items():
         if (root / marker).exists():
             report.frameworks.append(name)
 
-    # Scan files
+    scan_timeout = _env_float(
+        "AG_SCAN_TIMEOUT_SECONDS",
+        _DEFAULT_SCAN_TIMEOUT_SECONDS,
+        minimum=0.0,
+    )
+    max_files = _env_int(
+        "AG_SCAN_MAX_FILES",
+        _DEFAULT_SCAN_MAX_FILES,
+        minimum=1,
+    )
+    sample_limit = _env_int(
+        "AG_SCAN_SAMPLE_FILES",
+        _DEFAULT_SCAN_SAMPLE_FILES,
+        minimum=1,
+    )
+    started = time.monotonic()
+
     for item in root.rglob("*"):
         if not item.is_file():
             continue
@@ -609,65 +935,22 @@ def full_scan(root: Path) -> ScanReport:
         if _should_skip(rel, venv_dirs):
             continue
 
-        report.file_count += 1
-        ext = item.suffix.lower()
-        if ext in _LANG_MAP:
-            lang = _LANG_MAP[ext]
-            lang_counts[lang] = lang_counts.get(lang, 0) + 1
-
-    # Sort languages by count
-    report.languages = dict(sorted(lang_counts.items(), key=lambda x: x[1], reverse=True))
-
-    # Top-level directories (filter out hidden, skip dirs, egg-info, venvs)
-    report.top_dirs = sorted(
-        d.name
-        for d in root.iterdir()
-        if d.is_dir()
-        and not d.name.startswith(".")
-        and d.name not in skip_dirs
-        and not d.name.endswith(".egg-info")
-    )
-
-    # Detect tests (recursive — catches engine/tests, src/test, etc.)
-    test_dir_names = {"tests", "test", "spec", "specs", "__tests__"}
-    report.has_tests = any(
-        d.is_dir() and d.name in test_dir_names
-        for d in root.rglob("*")
-        if d.is_dir()
-        and not _should_skip(d.relative_to(root), venv_dirs)
-    )
-
-    # Detect pytest configuration
-    report.has_pytest = any(
-        (root / f).exists() for f in ("pytest.ini", "conftest.py")
-    ) or any(
-        d.is_file() and d.name in ("conftest.py", "pytest.ini")
-        for d in root.rglob("*")
-        if d.is_file()
-        and not _should_skip(d.relative_to(root), venv_dirs)
-        and d.name in ("conftest.py", "pytest.ini")
-    )
-
-    # CI and Docker detection
-    report.has_ci = (root / ".github" / "workflows").exists() or (root / ".gitlab-ci.yml").exists()
-    report.has_docker = (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists()
-
-    # Read first few lines of README
-    for name in ("README.md", "readme.md", "README.rst", "README"):
-        readme = root / name
-        if readme.exists():
-            try:
-                lines = readme.read_text(encoding="utf-8").splitlines()[:10]
-                report.readme_snippet = "\n".join(lines)
-            except OSError:
-                pass
+        if report.walked_file_count >= max_files:
+            report.timed_out = True
+            report.scan_stopped_reason = "max_files_reached"
+            break
+        if scan_timeout > 0 and (time.monotonic() - started) >= scan_timeout:
+            report.timed_out = True
+            report.scan_stopped_reason = "timeout"
             break
 
-    # --- Phase 1 enhancements: config files, entry points, git history ---
-    report.config_contents = _read_config_files(root)
-    report.entry_points = _read_entry_points(root, report.config_contents)
-    report.git_summary = _extract_git_summary(root)
+        _update_scan_stats(report, rel, item, sample_limit)
 
+    report.scan_elapsed_seconds = time.monotonic() - started
+    if not report.scan_stopped_reason:
+        report.scan_stopped_reason = "completed"
+
+    _finalize_scan_report(report, root, venv_dirs)
     return report
 
 
@@ -883,33 +1166,27 @@ def quick_scan(root: Path, since_sha: str) -> ScanReport:
     except FileNotFoundError:
         return full_scan(root)
 
-    # Detect venv directories by content
     venv_dirs = _find_venv_dirs(root)
-
-    lang_counts: dict[str, int] = {}
-    for file_str in changed_files:
-        filepath = root / file_str
-        if not filepath.exists():
-            continue
-        rel = Path(file_str)
-        if _should_skip(rel, venv_dirs):
-            continue
-        report.file_count += 1
-        ext = filepath.suffix.lower()
-        if ext in _LANG_MAP:
-            lang = _LANG_MAP[ext]
-            lang_counts[lang] = lang_counts.get(lang, 0) + 1
-
-    report.languages = dict(sorted(lang_counts.items(), key=lambda x: x[1], reverse=True))
-
-    # Always do framework detection
     for marker, name in _FRAMEWORK_MARKERS.items():
         if (root / marker).exists():
             report.frameworks.append(name)
 
-    # --- Phase 1 enhancements (always run, even in quick mode) ---
-    report.config_contents = _read_config_files(root)
-    report.entry_points = _read_entry_points(root, report.config_contents)
-    report.git_summary = _extract_git_summary(root)
+    sample_limit = _env_int(
+        "AG_SCAN_SAMPLE_FILES",
+        _DEFAULT_SCAN_SAMPLE_FILES,
+        minimum=1,
+    )
+    started = time.monotonic()
+    for file_str in changed_files:
+        filepath = root / file_str
+        if not filepath.exists() or not filepath.is_file():
+            continue
+        rel = Path(file_str)
+        if _should_skip(rel, venv_dirs):
+            continue
+        _update_scan_stats(report, rel, filepath, sample_limit)
 
+    report.scan_elapsed_seconds = time.monotonic() - started
+    report.scan_stopped_reason = "completed"
+    _finalize_scan_report(report, root, venv_dirs)
     return report

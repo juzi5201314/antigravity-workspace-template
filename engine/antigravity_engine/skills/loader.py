@@ -1,11 +1,13 @@
+"""Skill discovery and tool registration helpers."""
+
 import importlib.util
 import inspect
 import os
 from pathlib import Path
-from typing import Dict, Callable, Any, List
+from typing import Any, Callable
 
 
-_SKILLS_CACHE: tuple[Dict[str, Callable[..., Any]], str] | None = None
+_SKILLS_CACHE: dict[str, tuple[dict[str, Callable[..., Any]], str]] = {}
 
 
 def _verbose() -> bool:
@@ -13,7 +15,7 @@ def _verbose() -> bool:
     return os.environ.get("AG_SKILLS_VERBOSE", "0").strip().lower() in {"1", "true", "yes"}
 
 
-def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
+def load_skills(agent_tools: dict[str, Callable[..., Any]]) -> str:
     """
     Scans antigravity_engine/skills/ directory for skill packages.
 
@@ -27,15 +29,16 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
     Returns:
         A combined string of all SKILL.md contents to be injected into context.
     """
-    global _SKILLS_CACHE
-    if _SKILLS_CACHE is not None:
-        cached_tools, cached_docs = _SKILLS_CACHE
+    skills_dir = Path(__file__).parent.resolve()
+    cache_key = str(skills_dir)
+    cached = _SKILLS_CACHE.get(cache_key)
+    if cached is not None:
+        cached_tools, cached_docs = cached
         agent_tools.update(cached_tools)
         return cached_docs
 
-    skills_dir = Path(__file__).parent
-    skill_docs: List[str] = []
-    discovered_tools: Dict[str, Callable[..., Any]] = {}
+    skill_docs: list[str] = []
+    discovered_tools: dict[str, Callable[..., Any]] = {}
     verbose = _verbose()
     
     if not skills_dir.exists():
@@ -91,6 +94,6 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
                     print(f"     ❌ Failed to load docs: {e}")
 
     docs = "\n".join(skill_docs)
-    _SKILLS_CACHE = (discovered_tools, docs)
+    _SKILLS_CACHE[cache_key] = (discovered_tools, docs)
     agent_tools.update(discovered_tools)
     return docs
