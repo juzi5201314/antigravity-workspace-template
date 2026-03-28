@@ -217,6 +217,7 @@ explore its code in real time.
 7. ``summarize_directory`` — summarize a folder by extension and size
 8. ``read_binary_stub`` — preview binary files safely
 9. ``query_graph`` — retrieve query-relevant semantic triples from graph store
+{mcp_tools_section}
 
 **Strategy:** Use your pre-loaded knowledge to answer quickly. For dependency,
 ownership, and topology questions, call ``query_graph`` first, then verify
@@ -518,6 +519,8 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         model: Model identifier string.
         workspace: Project root directory.  When ``None`` the swarm
             falls back to a single agent without tools.
+        mcp_tools: Optional dict of MCP tool callables that should be
+            injected into every worker agent.
 
     Returns:
         The entry-point Agent (Router). Pass it to Runner.run().
@@ -543,6 +546,19 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     skill_docs: str = ""
     shared_skill_tools: dict = {}
     skill_docs = load_skills(shared_skill_tools) or skill_docs
+    wrapped_mcp: list = []
+    mcp_tools_section = ""
+    mcp_capability_note = ""
+    if mcp_tools:
+        wrapped_mcp = _wrap_tools(mcp_tools)
+        tool_names = list(mcp_tools.keys())
+        mcp_tool_list = "\n".join(f"- ``{name}``" for name in tool_names)
+        mcp_tools_section = _MCP_TOOLS_ADDENDUM.format(
+            mcp_tool_list=mcp_tool_list,
+        )
+        mcp_capability_note = (
+            f"\n\n**MCP tools available** (all agents): {', '.join(tool_names)}"
+        )
 
     # Detect modules and build ModuleAgents
     areas = _detect_areas(workspace)
@@ -563,7 +579,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
                 knowledge=knowledge,
             ),
             model=model,
-            tools=wrapped,
+            tools=wrapped + wrapped_mcp,
         )
         workers.append(agent)
 
@@ -606,6 +622,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
         f"**Project Structure Map:**\n{structure_map}"
     )
+    router_instructions += mcp_capability_note
     if skill_docs.strip():
         router_instructions += f"\n\n**Loaded Skills:**\n{skill_docs}"
 
@@ -640,15 +657,19 @@ def build_refresh_agent(model: str):
     return build_refresh_swarm(model)
 
 
-def build_reviewer_agent(model: str, workspace: Optional[Path] = None):
+def build_reviewer_agent(
+    model: str,
+    workspace: Optional[Path] = None,
+    mcp_tools: Optional[dict] = None,
+):
     """Build the ask swarm entry-point agent.
 
     Args:
         model: Model identifier string.
         workspace: Project root directory (passed to build_ask_swarm).
+        mcp_tools: Optional dict of MCP tool callables.
 
     Returns:
         The entry-point Agent for the Ask Swarm.
     """
-    return build_ask_swarm(model, workspace=workspace)
-
+    return build_ask_swarm(model, workspace=workspace, mcp_tools=mcp_tools)

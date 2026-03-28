@@ -471,6 +471,13 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
       </a><br/>
       <sub><a href="https://github.com/abhigyanpatwari/GitNexus">GitNexus</a> — code knowledge graph natively integrated into <code>ag ask</code> for symbol search, call graphs, and impact analysis</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/BBear0115">
+        <img src="https://github.com/BBear0115.png" width="80" /><br/>
+        <b>BBear0115</b>
+      </a><br/>
+      <sub>Skill packaging & KG retrieval enhancements · Multi-language README sync (#30)</sub>
+    </td>
   </tr>
 </table>
 

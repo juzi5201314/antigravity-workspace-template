@@ -491,6 +491,13 @@ Logged decision to .antigravity/decisions/log.md
       </a><br/>
       <sub><a href="https://github.com/abhigyanpatwari/GitNexus">GitNexus</a> — 代码知识图谱原生集成到 <code>ag ask</code>，提供符号搜索、调用图和影响分析</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/BBear0115">
+        <img src="https://github.com/BBear0115.png" width="80" /><br/>
+        <b>BBear0115</b>
+      </a><br/>
+      <sub>技能封装与知识图谱检索增强 · 多语言 README 同步更新 (#30)</sub>
+    </td>
   </tr>
 </table>
 

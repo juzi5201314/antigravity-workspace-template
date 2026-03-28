@@ -106,3 +106,39 @@ def test_bad_module_does_not_crash(tmp_path: Path):
         assert len(tools) == 0
     finally:
         loader_mod.__file__ = original_file
+
+
+def test_load_skills_caches_per_directory(tmp_path: Path):
+    """Repeated loads from the same directory should reuse cached results."""
+    skill_dir = tmp_path / "cached_skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# Cached Skill\nFirst version.", encoding="utf-8")
+    (skill_dir / "tools.py").write_text(
+        textwrap.dedent("""\
+        def cached_tool() -> str:
+            \"\"\"Return a stable value.\"\"\"
+            return "ok"
+        """),
+        encoding="utf-8",
+    )
+
+    import antigravity_engine.skills.loader as loader_mod
+
+    original_file = loader_mod.__file__
+    try:
+        loader_mod.__file__ = str(tmp_path / "loader.py")
+        loader_mod._SKILLS_CACHE.clear()
+
+        first_tools: dict = {}
+        first_docs = load_skills(first_tools)
+
+        (skill_dir / "SKILL.md").write_text("# Cached Skill\nSecond version.", encoding="utf-8")
+        second_tools: dict = {}
+        second_docs = load_skills(second_tools)
+
+        assert first_docs == second_docs
+        assert "cached_tool" in second_tools
+        assert "Second version." not in second_docs
+    finally:
+        loader_mod.__file__ = original_file
+        loader_mod._SKILLS_CACHE.clear()

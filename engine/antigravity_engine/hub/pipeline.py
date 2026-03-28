@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import ast
 import json
+import logging
 import os
 import re
 import subprocess
@@ -385,7 +386,26 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     prompt_parts.append(f"Question: {question}")
     prompt = "\n\n".join(prompt_parts)
 
-    agent = build_reviewer_agent(model, workspace=workspace)
+    mcp_tools: dict | None = None
+    mcp_manager = None
+    if settings.MCP_ENABLED:
+        print("[…] Connecting to MCP servers...", file=sys.stderr)
+        try:
+            from antigravity_engine.mcp_client import MCPClientManager
+
+            mcp_manager = MCPClientManager()
+            await mcp_manager.initialize()
+            mcp_tools = mcp_manager.get_all_tools_as_callables()
+            if mcp_tools:
+                logger.info("MCP tools loaded: %s", list(mcp_tools.keys()))
+            else:
+                logger.info("MCP enabled but no tools discovered")
+        except Exception as exc:
+            logger.warning("MCP initialization failed: %s", exc)
+            print(f"  ⚠ MCP init failed: {exc}", file=sys.stderr)
+            mcp_manager = None
+
+    agent = build_reviewer_agent(model, workspace=workspace, mcp_tools=mcp_tools)
     try:
         from agents import Runner
     except ImportError:
@@ -397,13 +417,20 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     ask_timeout = float(os.environ.get("AG_ASK_TIMEOUT_SECONDS", "45"))
     try:
-        if ask_timeout > 0:
-            result = await asyncio.wait_for(
-                Runner.run(agent, prompt, max_turns=12),
-                timeout=ask_timeout,
-            )
-        else:
-            result = await Runner.run(agent, prompt, max_turns=12)
+        try:
+            if ask_timeout > 0:
+                result = await asyncio.wait_for(
+                    Runner.run(agent, prompt, max_turns=12),
+                    timeout=ask_timeout,
+                )
+            else:
+                result = await Runner.run(agent, prompt, max_turns=12)
+        finally:
+            if mcp_manager is not None:
+                try:
+                    await mcp_manager.shutdown()
+                except Exception as exc:
+                    logger.warning("MCP shutdown error: %s", exc)
     except TimeoutError:
         return _build_timeout_fallback_answer(workspace, question)
 

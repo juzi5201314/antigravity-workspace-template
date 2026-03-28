@@ -155,3 +155,22 @@ def test_git_file_history_with_repo(tmp_path: Path) -> None:
     tools = _make_tools(tmp_path)
     result = tools["git_file_history"]("app.py")
     assert "initial version" in result
+
+
+def test_search_code_records_retrieval_graph_artifacts(tmp_path: Path) -> None:
+    """Tool calls should persist retrieval graph artifacts for later reuse."""
+    (tmp_path / "app.py").write_text("def login(user, pw):\n    return True\n")
+
+    tools = _make_tools(tmp_path)
+    result = tools["search_code"]("login")
+
+    assert "app.py" in result
+
+    retrieval_dir = tmp_path / ".antigravity" / "retrieval_graphs"
+    graph_dir = tmp_path / ".antigravity" / "graph"
+    assert list(retrieval_dir.glob("*.json"))
+    assert (graph_dir / "nodes.jsonl").exists()
+    assert (graph_dir / "edges.jsonl").exists()
+
+    nodes_text = (graph_dir / "nodes.jsonl").read_text(encoding="utf-8")
+    assert "search_code" in nodes_text

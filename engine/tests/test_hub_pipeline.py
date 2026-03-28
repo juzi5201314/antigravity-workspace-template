@@ -72,6 +72,12 @@ async def test_refresh_pipeline_creates_conventions(tmp_path: Path, monkeypatch)
     conventions = ag_dir / "conventions.md"
     assert conventions.exists()
     assert "Python project" in conventions.read_text(encoding="utf-8")
+    assert (ag_dir / "knowledge_graph.json").exists()
+    assert (ag_dir / "knowledge_graph.md").exists()
+    assert (ag_dir / "knowledge_graph.mmd").exists()
+    assert (ag_dir / "document_index.md").exists()
+    assert (ag_dir / "data_overview.md").exists()
+    assert (ag_dir / "media_manifest.md").exists()
 
 
 @pytest.mark.asyncio
