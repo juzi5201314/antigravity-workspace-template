@@ -155,6 +155,10 @@ antigravity-workspace-template/
 
 **Engine**（`pip install .../engine`）—— 多智能体运行时。驱动 `ag-ask`、`ag-refresh`、`ag-mcp`。支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容 API。
 
+**新增 skill 封装更新：**
+- `engine/antigravity_engine/skills/graph-retrieval/` —— 面向结构与调用路径推理的图谱检索工具。
+- `engine/antigravity_engine/skills/knowledge-layer/` —— 面向项目语义上下文整合的知识层工具。
+
 ```bash
 # 安装两者获取完整体验
 pip install "git+https://...#subdirectory=cli"

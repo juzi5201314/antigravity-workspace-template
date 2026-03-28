@@ -155,6 +155,10 @@ antigravity-workspace-template/
 
 **Engine** (`pip install .../engine`) — Multi-agent runtime. Powers `ag-ask`, `ag-refresh`, `ag-mcp`. Supports Gemini, OpenAI, Ollama, or any OpenAI-compatible API.
 
+**New skill packaging updates:**
+- `engine/antigravity_engine/skills/graph-retrieval/` — graph-oriented retrieval tools for structure and call-path reasoning.
+- `engine/antigravity_engine/skills/knowledge-layer/` — project knowledge-layer tools for semantic context consolidation.
+
 ```bash
 # Install both for full experience
 pip install "git+https://...#subdirectory=cli"
