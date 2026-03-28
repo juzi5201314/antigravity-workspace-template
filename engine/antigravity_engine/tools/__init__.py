@@ -1,24 +1,10 @@
-"""
-Tools package for Antigravity Agent.
+"""Legacy tools package.
 
-All Python files in this directory are automatically discovered and loaded.
-Any public function (not starting with _) will be registered as an available tool.
+These tools were designed for the old single-agent architecture (GeminiAgent)
+which used auto-discovery of .py files in this directory.
 
-Tool Requirements:
-- Must have type hints for all parameters
-- Must have Google-style docstring
-- Must be a standalone function (not a class method)
-
-Example tool structure:
-    def my_tool(param: str) -> str:
-        \"\"\"Brief description of what the tool does.
-        
-        Args:
-            param: Description of the parameter.
-            
-        Returns:
-            Description of the return value.
-        \"\"\"
-        # Implementation here
-        return result
+In the current multi-agent architecture (v0.2+), code-exploration tools
+are defined in ``hub/ask_tools.py`` and bound per-workspace.  The files
+here are retained as reference implementations and may be integrated
+into ModuleAgents in a future release.
 """

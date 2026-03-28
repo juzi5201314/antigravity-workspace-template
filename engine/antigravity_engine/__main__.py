@@ -1,3 +1,3 @@
-from antigravity_engine._cli_entry import engine_main
+from antigravity_engine._cli_entry import ask_main
 
-engine_main()
+ask_main()

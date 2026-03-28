@@ -11,6 +11,7 @@ is rejected.
 from __future__ import annotations
 
 import fnmatch
+import functools
 import os
 import re
 import subprocess
@@ -56,6 +57,7 @@ def _should_skip_dir(name: str) -> bool:
     return name in _SKIP_DIRS or name.endswith(".egg-info")
 
 
+@functools.lru_cache(maxsize=1)
 def _is_gitnexus_available() -> bool:
     """Check if the ``gitnexus`` CLI is installed and reachable."""
     try:

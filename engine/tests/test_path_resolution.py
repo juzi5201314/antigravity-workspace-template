@@ -1,18 +1,19 @@
 import json
 
-from antigravity_engine.config import settings
+from antigravity_engine.config import settings, reset_settings
 from antigravity_engine.mcp_client import MCPClientManager
 from antigravity_engine.memory import MemoryManager
 
 
 def test_memory_manager_default_path_is_anchored_to_project_root(tmp_path, monkeypatch):
+    reset_settings()
     monkeypatch.setattr(settings, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(settings, "MEMORY_FILE", "nested/agent_memory.json")
+    monkeypatch.setattr(settings, "MEMORY_FILE", "nested/agent_memory.md")
 
     manager = MemoryManager()
     manager.add_entry("user", "hello")
 
-    expected_path = tmp_path / "nested" / "agent_memory.json"
+    expected_path = tmp_path / "nested" / "agent_memory.md"
     assert expected_path.exists()
 
 
@@ -38,6 +39,7 @@ def test_mcp_config_relative_path_is_anchored_to_project_root(tmp_path, monkeypa
         encoding="utf-8",
     )
 
+    reset_settings()
     monkeypatch.setattr(settings, "PROJECT_ROOT", str(tmp_path))
 
     manager = MCPClientManager(config_path="configs/mcp_servers.json")

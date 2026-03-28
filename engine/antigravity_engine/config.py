@@ -137,5 +137,36 @@ class Settings(BaseSettings):
         return self.resolve_path(self.ARTIFACTS_DIR)
 
 
-# Global settings instance
-settings = Settings()
+# Lazy global settings — instantiated on first access so that env-var
+# overrides in tests take effect.
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Return the global Settings instance, creating it on first call."""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
+
+def reset_settings() -> None:
+    """Reset the cached settings (useful in tests after changing env vars)."""
+    global _settings
+    _settings = None
+
+
+class _SettingsProxy:
+    """Transparent proxy so ``from config import settings`` keeps working."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_settings(), name)
+
+    def __setattr__(self, name: str, value):
+        setattr(get_settings(), name, value)
+
+    def __repr__(self) -> str:
+        return repr(get_settings())
+
+
+settings = _SettingsProxy()

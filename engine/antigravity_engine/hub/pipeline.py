@@ -1,9 +1,12 @@
 """Hub pipelines — refresh and ask."""
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
@@ -18,7 +21,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     set_tracing_disabled(True)
 
     from antigravity_engine.config import Settings
-    from antigravity_engine.hub.agents import build_refresh_agent, create_model
+    from antigravity_engine.hub.agents import build_refresh_swarm, create_model
     from antigravity_engine.hub.scanner import extract_structure, full_scan, quick_scan
 
     settings = Settings()
@@ -26,7 +29,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
     sha_file = workspace / ".antigravity" / ".last_refresh_sha"
 
-    print("[1/3] Scanning project...", file=sys.stderr)
+    print("[1/5] Scanning project...", file=sys.stderr)
 
     if quick and sha_file.exists():
         since_sha = sha_file.read_text(encoding="utf-8").strip()
@@ -37,7 +40,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     # Build prompt from scan report
     prompt = _format_scan_report(report)
 
-    agent = build_refresh_agent(model)
+    agent = build_refresh_swarm(model)
     try:
         from agents import Runner
     except ImportError:
@@ -45,12 +48,12 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
             "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
         ) from None
 
-    print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
+    print("[2/5] Analyzing with multi-agent swarm...", file=sys.stderr)
 
     result = await Runner.run(agent, prompt)
     conventions_content = result.final_output
 
-    print("[3/4] Writing conventions.md...", file=sys.stderr)
+    print("[3/5] Writing conventions.md...", file=sys.stderr)
 
     # Write conventions
     ag_dir = workspace / ".antigravity"
@@ -69,14 +72,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         build_refresh_git_agent,
     )
 
-    try:
-        from agents import Runner
-    except ImportError:
-        raise ImportError(
-            "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
-        ) from None
-
     module_agents = build_refresh_module_swarm(model, workspace)
+    failed_modules: list[str] = []
     for mod_name, mod_agent in module_agents:
         print(f"  → RefreshModule_{mod_name} analyzing...", file=sys.stderr)
         try:
@@ -85,7 +82,9 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                 f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
             )
         except Exception as exc:
+            logger.warning("RefreshModule_%s failed: %s", mod_name, exc)
             print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+            failed_modules.append(mod_name)
 
     # Run RefreshGitAgent
     print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
@@ -96,7 +95,9 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
             "Analyze the project's git history and write your git insights document.",
         )
     except Exception as exc:
+        logger.warning("RefreshGitAgent failed: %s", exc)
         print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)
+        failed_modules.append("_git")
 
     # Save SHA checkpoint
     current_sha = _get_head_sha(workspace)
@@ -109,6 +110,12 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     if modules_dir.exists():
         mod_count = len(list(modules_dir.glob("*.md")))
         print(f"Updated {modules_dir} ({mod_count} module docs)")
+
+    if failed_modules:
+        print(
+            f"\n⚠ {len(failed_modules)} agent(s) failed: {', '.join(failed_modules)}",
+            file=sys.stderr,
+        )
 
 
 
@@ -183,7 +190,7 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     set_tracing_disabled(True)
 
     from antigravity_engine.config import Settings
-    from antigravity_engine.hub.agents import build_reviewer_agent, create_model
+    from antigravity_engine.hub.agents import build_ask_swarm, create_model
 
     settings = Settings()
     model = create_model(settings)
@@ -193,7 +200,7 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     context = _build_ask_context(workspace)
     prompt = f"Project context:\n{context}\n\nQuestion: {question}"
 
-    agent = build_reviewer_agent(model, workspace=workspace)
+    agent = build_ask_swarm(model, workspace=workspace)
     try:
         from agents import Runner
     except ImportError:

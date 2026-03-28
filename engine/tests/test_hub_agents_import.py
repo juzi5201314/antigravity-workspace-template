@@ -6,22 +6,22 @@ import pytest
 from unittest.mock import patch
 
 
-def test_build_refresh_agent_import_error():
-    """build_refresh_agent raises ImportError with helpful message when agents SDK missing."""
-    from antigravity_engine.hub.agents import build_refresh_agent
+def test_build_refresh_swarm_import_error():
+    """build_refresh_swarm raises ImportError with helpful message when agents SDK missing."""
+    from antigravity_engine.hub.agents import build_refresh_swarm
 
     with patch.dict(sys.modules, {"agents": None}):
         with pytest.raises(ImportError, match="OpenAI Agent SDK not found"):
-            build_refresh_agent("test-model")
+            build_refresh_swarm("test-model")
 
 
-def test_build_reviewer_agent_import_error():
-    """build_reviewer_agent raises ImportError with helpful message when agents SDK missing."""
-    from antigravity_engine.hub.agents import build_reviewer_agent
+def test_build_ask_swarm_import_error():
+    """build_ask_swarm raises ImportError with helpful message when agents SDK missing."""
+    from antigravity_engine.hub.agents import build_ask_swarm
 
     with patch.dict(sys.modules, {"agents": None}):
         with pytest.raises(ImportError, match="OpenAI Agent SDK not found"):
-            build_reviewer_agent("test-model")
+            build_ask_swarm("test-model")
 
 
 def test_detect_areas_finds_source_dirs(tmp_path: Path) -> None:

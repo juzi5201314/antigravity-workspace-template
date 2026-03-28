@@ -1,12 +1,19 @@
-"""OpenAI Agent SDK agents for the Knowledge Hub.
+"""Dynamic multi-agent cluster for the Knowledge Hub.
 
-Two multi-agent swarms:
+Three agent systems:
 
-Refresh Swarm (ag refresh) — 3 agents:
-    ScanAnalyst → ArchitectureReviewer → ConventionWriter
+1. Refresh Chain (ag-refresh, step 2/5):
+       ScanAnalyst → ArchitectureReviewer → ConventionWriter
+       Produces conventions.md from a project scan report.
 
-Ask Swarm (ag ask) — 3 agents:
-    ContextCurator → DeepAnalyst → AnswerSynthesizer
+2. Refresh Module Swarm (ag-refresh, step 5/5):
+       N × RefreshModuleAgent  — one per detected code module,
+       each autonomously reads code and writes .antigravity/modules/<name>.md
+       + 1 × RefreshGitAgent   — analyzes git history → _git_insights.md
+
+3. Ask Swarm (ag-ask):
+       Router → N × ModuleAgent (pre-loaded knowledge) + GitAgent
+       Agents can handoff across modules for cross-cutting questions.
 """
 from __future__ import annotations
 
@@ -396,7 +403,7 @@ def _read_structure_map(workspace: Path) -> str:
             return doc_path.read_text(encoding="utf-8")
         except OSError:
             pass
-    return "(No structure map available. Run `ag-hub refresh` first.)"
+    return "(No structure map available. Run `ag-refresh` first.)"
 
 
 # ---------------------------------------------------------------------------
@@ -601,33 +608,4 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         worker.handoffs = [router] + [w for w in workers if w is not worker]
 
     return router
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible aliases (used by existing tests)
-# ---------------------------------------------------------------------------
-
-def build_refresh_agent(model: str):
-    """Build the refresh swarm entry-point agent.
-
-    Args:
-        model: Model identifier string.
-
-    Returns:
-        The entry-point Agent for the Refresh Swarm.
-    """
-    return build_refresh_swarm(model)
-
-
-def build_reviewer_agent(model: str, workspace: Optional[Path] = None):
-    """Build the ask swarm entry-point agent.
-
-    Args:
-        model: Model identifier string.
-        workspace: Project root directory (passed to build_ask_swarm).
-
-    Returns:
-        The entry-point Agent for the Ask Swarm.
-    """
-    return build_ask_swarm(model, workspace=workspace)
 
