@@ -1,19 +1,12 @@
-"""Dynamic multi-agent cluster for the Knowledge Hub.
+"""OpenAI Agent SDK agents for the Knowledge Hub.
 
-Three agent systems:
+Two multi-agent swarms:
 
-1. Refresh Chain (ag-refresh, step 2/5):
-       ScanAnalyst → ArchitectureReviewer → ConventionWriter
-       Produces conventions.md from a project scan report.
+Refresh Swarm (ag refresh) — 3 agents:
+    ScanAnalyst → ArchitectureReviewer → ConventionWriter
 
-2. Refresh Module Swarm (ag-refresh, step 5/5):
-       N × RefreshModuleAgent  — one per detected code module,
-       each autonomously reads code and writes .antigravity/modules/<name>.md
-       + 1 × RefreshGitAgent   — analyzes git history → _git_insights.md
-
-3. Ask Swarm (ag-ask):
-       Router → N × ModuleAgent (pre-loaded knowledge) + GitAgent
-       Agents can handoff across modules for cross-cutting questions.
+Ask Swarm (ag ask) — 3 agents:
+    ContextCurator → DeepAnalyst → AnswerSynthesizer
 """
 from __future__ import annotations
 
@@ -178,18 +171,22 @@ def build_refresh_swarm(model: str):
 _ROUTER_INSTRUCTIONS = """\
 You are the Router agent for a software project Q&A system.
 
-You have access to the project's **structure map** (provided in the prompt)
-which tells you what code areas exist, what modules/classes/functions are
-in each area, and their purpose.
+You have access to the project's **graph-first context** (knowledge graph,
+structure map, document index, data overview, media manifest). Use this to
+route requests beyond code, including documentation/data/media questions.
 
 Your job:
 1. Read the user's question carefully.
 2. Based on the structure map, identify which module(s) are most relevant.
 3. Hand off to the appropriate **ModuleAgent**.  Each ModuleAgent has
    deep knowledge of its module and tools to explore code.
-4. For git-related questions (recent changes, commit history, who changed
+4. For documentation/data/media questions, route to the module that owns those
+    files; if uncertain, use Module_full_project first.
+5. For git-related questions (recent changes, commit history, who changed
    what), hand off to the **GitAgent**.
-5. For cross-module questions, hand off to one module first, it can
+6. For structure/dependency topology questions, prefer agents/tools that can
+    query graph semantics (e.g. query_graph) before deep file reading.
+7. For cross-module questions, hand off to one module first, it can
    hand off to other modules as needed.
 
 When agents return findings, synthesize them into a final answer:
@@ -215,23 +212,22 @@ explore its code in real time.
 2. ``read_file`` — read actual source code
 3. ``list_directory`` — explore sub-directories
 4. ``git_file_history`` — check when/why files were changed
-{mcp_tools_section}
-**Strategy:** Use your pre-loaded knowledge to answer quickly. Only use
-tools when you need to verify details or find specific code that isn't
-in your knowledge document.
+5. ``read_file_metadata`` — inspect file metadata
+6. ``search_by_type`` — find docs/data/media/code files
+7. ``summarize_directory`` — summarize a folder by extension and size
+8. ``read_binary_stub`` — preview binary files safely
+9. ``query_graph`` — retrieve query-relevant semantic triples from graph store
+
+**Strategy:** Use your pre-loaded knowledge to answer quickly. For dependency,
+ownership, and topology questions, call ``query_graph`` first, then verify
+with file tools when needed.
 
 If the question involves another module, hand off to that module's agent
 or back to the Router.
 
-Return findings with exact file paths, line numbers, and code snippets.
+Return findings with exact source paths. For code, include line numbers and
+function/class names. For non-code files, include file path + metadata cues.
 Be thorough but concise.
-"""
-
-_MCP_TOOLS_ADDENDUM = """
-**External MCP tools (connected via MCP protocol):**
-{mcp_tool_list}
-Use these tools when the question requires data beyond the local codebase
-(e.g. GitHub issues, database queries, web search).
 """
 
 _GIT_AGENT_INSTRUCTIONS = """\
@@ -410,7 +406,7 @@ def _read_structure_map(workspace: Path) -> str:
             return doc_path.read_text(encoding="utf-8")
         except OSError:
             pass
-    return "(No structure map available. Run `ag-refresh` first.)"
+    return "(No structure map available. Run `ag-hub refresh` first.)"
 
 
 # ---------------------------------------------------------------------------
@@ -510,11 +506,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
 # ---------------------------------------------------------------------------
 
 
-def build_ask_swarm(
-    model: str,
-    workspace: Optional[Path] = None,
-    mcp_tools: Optional[dict] = None,
-):
+def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     """Build the Ask Swarm using a dynamic module-based Router-Worker pattern.
 
     Each detected module gets a ModuleAgent pre-loaded with its knowledge
@@ -522,17 +514,10 @@ def build_ask_swarm(
     questions. All agents can handoff to each other for cross-module
     communication.
 
-    When *mcp_tools* is provided (dict of name→callable from
-    MCPClientManager), those tools are injected into every worker agent
-    so they can call external services (GitHub, databases, search, etc.).
-
     Args:
         model: Model identifier string.
         workspace: Project root directory.  When ``None`` the swarm
             falls back to a single agent without tools.
-        mcp_tools: Optional dict of MCP tool callables from
-            MCPClientManager.get_all_tools_as_callables(). When provided,
-            these are wrapped and added to every worker agent.
 
     Returns:
         The entry-point Agent (Router). Pass it to Runner.run().
@@ -553,21 +538,11 @@ def build_ask_swarm(
         create_ask_tools,
         create_git_tools,
     )
+    from antigravity_engine.skills.loader import load_skills
 
-    # Wrap MCP tools once (shared across all agents)
-    wrapped_mcp: list = []
-    mcp_tools_section = ""
-    mcp_capability_note = ""
-    if mcp_tools:
-        wrapped_mcp = _wrap_tools(mcp_tools)
-        tool_names = list(mcp_tools.keys())
-        mcp_tool_list = "\n".join(f"- ``{n}``" for n in tool_names)
-        mcp_tools_section = _MCP_TOOLS_ADDENDUM.format(
-            mcp_tool_list=mcp_tool_list,
-        )
-        mcp_capability_note = (
-            f"\n\n**MCP tools available** (all agents): {', '.join(tool_names)}"
-        )
+    skill_docs: str = ""
+    shared_skill_tools: dict = {}
+    skill_docs = load_skills(shared_skill_tools) or skill_docs
 
     # Detect modules and build ModuleAgents
     areas = _detect_areas(workspace)
@@ -577,14 +552,15 @@ def build_ask_swarm(
         knowledge = _read_module_knowledge(workspace, mod)
         mod_path = workspace / mod
         mod_tools = create_ask_tools(mod_path)
-        wrapped = _wrap_tools(mod_tools) + wrapped_mcp
+        # Reuse globally loaded skill tools to avoid repeated scanning overhead.
+        mod_tools.update(shared_skill_tools)
+        wrapped = _wrap_tools(mod_tools)
 
         agent = Agent(
             name=f"Module_{mod}",
             instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
                 module=mod,
                 knowledge=knowledge,
-                mcp_tools_section=mcp_tools_section,
             ),
             model=model,
             tools=wrapped,
@@ -595,6 +571,7 @@ def build_ask_swarm(
     git_knowledge = _read_git_knowledge(workspace)
     git_tools = create_git_tools(workspace)
     ask_tools = create_ask_tools(workspace)
+    ask_tools.update(shared_skill_tools)
     git_all_tools = {**git_tools}
     # Add git_file_history from ask_tools if available
     if "git_file_history" in ask_tools:
@@ -604,21 +581,21 @@ def build_ask_swarm(
         name="GitAgent",
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
-        tools=_wrap_tools(git_all_tools) + wrapped_mcp,
+        tools=_wrap_tools(git_all_tools),
     )
     workers.append(git_agent)
 
     # Build full-project fallback worker
     full_tools = create_ask_tools(workspace)
+    full_tools.update(shared_skill_tools)
     full_worker = Agent(
         name="Module_full_project",
         instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
             module="entire project",
             knowledge=_read_structure_map(workspace),
-            mcp_tools_section=mcp_tools_section,
         ),
         model=model,
-        tools=_wrap_tools(full_tools) + wrapped_mcp,
+        tools=_wrap_tools(full_tools),
     )
     workers.append(full_worker)
 
@@ -628,8 +605,9 @@ def build_ask_swarm(
     router_instructions = _ROUTER_INSTRUCTIONS + (
         f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
         f"**Project Structure Map:**\n{structure_map}"
-        + mcp_capability_note
     )
+    if skill_docs.strip():
+        router_instructions += f"\n\n**Loaded Skills:**\n{skill_docs}"
 
     router = Agent(
         name="Router",
@@ -644,4 +622,33 @@ def build_ask_swarm(
         worker.handoffs = [router] + [w for w in workers if w is not worker]
 
     return router
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible aliases (used by existing tests)
+# ---------------------------------------------------------------------------
+
+def build_refresh_agent(model: str):
+    """Build the refresh swarm entry-point agent.
+
+    Args:
+        model: Model identifier string.
+
+    Returns:
+        The entry-point Agent for the Refresh Swarm.
+    """
+    return build_refresh_swarm(model)
+
+
+def build_reviewer_agent(model: str, workspace: Optional[Path] = None):
+    """Build the ask swarm entry-point agent.
+
+    Args:
+        model: Model identifier string.
+        workspace: Project root directory (passed to build_ask_swarm).
+
+    Returns:
+        The entry-point Agent for the Ask Swarm.
+    """
+    return build_ask_swarm(model, workspace=workspace)
 

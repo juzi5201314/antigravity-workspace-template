@@ -1,7 +1,17 @@
 import importlib.util
 import inspect
+import os
 from pathlib import Path
 from typing import Dict, Callable, Any, List
+
+
+_SKILLS_CACHE: tuple[Dict[str, Callable[..., Any]], str] | None = None
+
+
+def _verbose() -> bool:
+    """Return whether skill loading should print diagnostics."""
+    return os.environ.get("AG_SKILLS_VERBOSE", "0").strip().lower() in {"1", "true", "yes"}
+
 
 def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
     """
@@ -17,14 +27,24 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
     Returns:
         A combined string of all SKILL.md contents to be injected into context.
     """
+    global _SKILLS_CACHE
+    if _SKILLS_CACHE is not None:
+        cached_tools, cached_docs = _SKILLS_CACHE
+        agent_tools.update(cached_tools)
+        return cached_docs
+
     skills_dir = Path(__file__).parent
     skill_docs: List[str] = []
+    discovered_tools: Dict[str, Callable[..., Any]] = {}
+    verbose = _verbose()
     
     if not skills_dir.exists():
-        print(f"⚠️ Skills directory not found: {skills_dir}")
+        if verbose:
+            print(f"⚠️ Skills directory not found: {skills_dir}")
         return ""
 
-    print(f"📦 Scanning for skills in {skills_dir}...")
+    if verbose:
+        print(f"📦 Scanning for skills in {skills_dir}...")
 
     # Iterate over directories in antigravity_engine/skills/
     for skill_path in skills_dir.iterdir():
@@ -32,7 +52,8 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
             continue
             
         skill_name = skill_path.name
-        print(f"   ► Found skill: {skill_name}")
+        if verbose:
+            print(f"   ► Found skill: {skill_name}")
         
         # 1. Load Tools (tools.py)
         tools_file = skill_path / "tools.py"
@@ -48,11 +69,13 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
                     count = 0
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
                         if not name.startswith("_") and obj.__module__ == module.__name__:
-                            agent_tools[name] = obj
+                            discovered_tools[name] = obj
                             count += 1
-                    print(f"     ✓ Loaded {count} tools from tools.py")
+                    if verbose:
+                        print(f"     ✓ Loaded {count} tools from tools.py")
             except Exception as e:
-                print(f"     ❌ Failed to load tools: {e}")
+                if verbose:
+                    print(f"     ❌ Failed to load tools: {e}")
         
         # 2. Load Documentation (SKILL.md)
         doc_file = skill_path / "SKILL.md"
@@ -61,8 +84,13 @@ def load_skills(agent_tools: Dict[str, Callable[..., Any]]) -> str:
                 content = doc_file.read_text(encoding="utf-8").strip()
                 if content:
                     skill_docs.append(f"\n--- SKILL: {skill_name} ---\n{content}")
-                    print(f"     ✓ Loaded documentation from SKILL.md")
+                    if verbose:
+                        print(f"     ✓ Loaded documentation from SKILL.md")
             except Exception as e:
-                print(f"     ❌ Failed to load docs: {e}")
-                
-    return "\n".join(skill_docs)
+                if verbose:
+                    print(f"     ❌ Failed to load docs: {e}")
+
+    docs = "\n".join(skill_docs)
+    _SKILLS_CACHE = (discovered_tools, docs)
+    agent_tools.update(discovered_tools)
+    return docs
