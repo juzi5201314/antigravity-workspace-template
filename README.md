@@ -6,7 +6,7 @@
 
 ### The missing cognitive layer for AI-powered IDEs.
 
-One command. Every AI IDE becomes an expert on your codebase.
+Dynamic multi-agent cluster. Every AI IDE becomes an expert on your codebase.
 
 Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 
@@ -42,21 +42,21 @@ Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 
 > **Don't give your AI IDE an encyclopedia. Give it a ChatGPT for your codebase.**
 
-Most teams stuff `CLAUDE.md` with documentation nobody reads. Antigravity takes the opposite approach: instead of a static knowledge dump, it gives your AI IDE a **live Q&A system** backed by a multi-agent pipeline that actually reads your code.
+Most teams stuff `CLAUDE.md` with documentation nobody reads. Antigravity takes the opposite approach: instead of a static knowledge dump, it deploys a **dynamic multi-agent cluster** — each code module gets its own Agent that autonomously reads code and generates knowledge docs, with a Router that intelligently routes questions to the right Agent.
 
 ```
 Traditional approach:              Antigravity approach:
   CLAUDE.md = 5000 lines of docs     Claude Code calls ask_project("how does auth work?")
-  Agent reads it all, forgets most   Router-Worker reads actual source, returns exact answer
+  Agent reads it all, forgets most   Router → ModuleAgent reads actual source, returns exact answer
   Hallucination rate stays high      Grounded in real code, file paths, and git history
 ```
 
 | Problem | Without Antigravity | With Antigravity |
 |:--------|:-------------------|:-----------------|
 | Agent forgets coding style | Repeats the same corrections | Reads `.antigravity/conventions.md` — gets it right the first time |
-| Onboarding a new codebase | Agent guesses at architecture | `ag refresh` scans & documents it automatically |
+| Onboarding a new codebase | Agent guesses at architecture | `ag-refresh` → ModuleAgents self-learn each module |
 | Switching between IDEs | Different rules everywhere | One `.antigravity/` folder — every IDE reads it |
-| Asking "how does X work?" | Agent reads random files | `ask_project` MCP tool returns grounded answers with line numbers |
+| Asking "how does X work?" | Agent reads random files | `ask_project` MCP → Router routes to the responsible ModuleAgent |
 
 Architecture is **files + a live Q&A engine**, not plugins. Portable across any IDE, any LLM, zero vendor lock-in.
 
@@ -71,7 +71,7 @@ ag init my-project && cd my-project
 # Your IDE now reads .antigravity/rules.md, .cursorrules, CLAUDE.md, AGENTS.md automatically
 ```
 
-**Option B — Full setup with live Q&A engine (recommended for Claude Code)**
+**Option B — Full setup with multi-agent Q&A engine (recommended for Claude Code)**
 ```bash
 # 1. Inject context files
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
@@ -80,37 +80,35 @@ ag init my-project && cd my-project
 # 2. Install the engine
 pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
 
-# 3. Configure .env with your LLM API key, then scan your project
-ag refresh
+# 3. Configure .env with your LLM API key, then refresh knowledge base (ModuleAgents self-learn)
+ag-refresh
 
 # 4. Register as MCP server — Claude Code can now call ask_project as a tool
 claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 ```
 
-Now when Claude Code needs to understand your codebase, it calls `ask_project("...")` instead of guessing.
+Now when Claude Code needs to understand your codebase, it calls `ask_project("...")` — Router auto-routes to the right ModuleAgent.
 
 ---
 
 ## Features at a Glance
 
 ```
-  ag init           Inject context files into any project (--force to overwrite)
+  ag init             Inject context files into any project (--force to overwrite)
        │
        ▼
-  .antigravity/     Shared knowledge base — every IDE reads from here
+  .antigravity/       Shared knowledge base — every IDE reads from here
        │
-       ├──► ag refresh     Multi-agent scan → conventions.md + structure.md
-       ├──► ag ask         Router-Worker Q&A with context + code evidence
-       └──► ag start-engine   Full Think-Act-Reflect agent runtime
+       ├──► ag-refresh     Dynamic multi-agent self-learning → module knowledge docs + structure map
+       ├──► ag-ask         Router → ModuleAgent Q&A with live code evidence
+       └──► ag-mcp         MCP server → Claude Code calls directly
 ```
 
-**Knowledge Hub** — Multi-agent pipeline that scans your codebase, understands languages/frameworks/structure, writes living documentation, and generates a project structure map for later Q&A. Powered by OpenAI Agent SDK + LiteLLM, works with Gemini, OpenAI, Ollama, or any compatible API.
+**Dynamic Multi-Agent Cluster** — During `ag-refresh`, each code module gets a RefreshModuleAgent that autonomously reads the code and generates a deep knowledge doc. During `ag-ask`, Router reads the structure map and routes questions to the right ModuleAgent. Agents can handoff across modules. Powered by OpenAI Agent SDK + LiteLLM.
 
-**Zero-Config Tools** — Drop a `.py` file into `tools/`, add type hints and a docstring. The agent discovers it automatically at startup.
+**GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
-**Infinite Memory** — Recursive summarization compresses conversation history. Run for hours without hitting token limits.
-
-**Multi-Agent Swarm** — Router-Worker orchestration delegates tasks to specialist agents (Coder, Reviewer, Researcher) and synthesizes results.
+**GitNexus Enhancement (optional)** — Install GitNexus to auto-unlock semantic search, call graphs, and impact analysis for every ModuleAgent.
 
 ---
 
@@ -120,12 +118,11 @@ Now when Claude Code needs to understand your codebase, it calls `ask_project(".
 |:--------|:-------------|:-----------:|
 | `ag init <dir>` | Inject cognitive architecture templates | No |
 | `ag init <dir> --force` | Re-inject, overwriting existing files | No |
-| `ag refresh` | Scan project, generate `.antigravity/conventions.md` and `.antigravity/structure.md` | Yes |
-| `ag ask "question"` | Answer project questions using shared context and scoped code exploration | Yes |
+| `ag-refresh` | Multi-agent self-learning of codebase, generates module knowledge docs + `conventions.md` + `structure.md` | Yes |
+| `ag-ask "question"` | Router → ModuleAgent/GitAgent routed Q&A | Yes |
 | `ag-mcp --workspace <dir>` | **Start MCP server** — exposes `ask_project` + `refresh_project` to Claude Code | Yes |
 | `ag report "message"` | Log a finding to `.antigravity/memory/` | No |
 | `ag log-decision "what" "why"` | Log an architectural decision | No |
-| `ag start-engine` | Launch the full Agent Engine runtime | Yes |
 
 All commands accept `--workspace <dir>` to target any directory.
 
@@ -137,19 +134,26 @@ All commands accept `--workspace <dir>` to target any directory.
 antigravity-workspace-template/
 ├── cli/                     # ag CLI — lightweight, pip-installable
 │   └── templates/           # .cursorrules, CLAUDE.md, .antigravity/, ...
-└── engine/                  # Agent Engine — full runtime + Knowledge Hub
+└── engine/                  # Multi-agent engine + Knowledge Hub
     └── antigravity_engine/
-        ├── agent.py         # Think-Act-Reflect loop (Gemini / OpenAI / Ollama)
-        ├── hub/             # Knowledge Hub (scanner → agents → pipeline)
-        ├── tools/           # Drop a .py file → auto-discovered as a tool
-        ├── agents/          # Specialist agents (Coder, Reviewer, Researcher)
-        ├── swarm.py         # Multi-agent orchestration (Router-Worker)
+        ├── _cli_entry.py    # ag-ask / ag-refresh entry points
+        ├── config.py        # Pydantic configuration
+        ├── hub/             # ★ Core: multi-agent cluster
+        │   ├── agents.py    #   Router + ModuleAgent + GitAgent
+        │   ├── pipeline.py  #   refresh / ask orchestration
+        │   ├── ask_tools.py #   Code exploration + GitNexus tools
+        │   ├── scanner.py   #   Project scanning + module detection
+        │   └── mcp_server.py#   MCP server (ag-mcp)
+        ├── mcp_client.py    # MCP consumer (connects external tools)
+        ├── memory.py        # Persistent interaction memory
+        ├── tools/           # MCP query tools + extensions
+        ├── skills/          # Skill loader
         └── sandbox/         # Code execution (local / microsandbox)
 ```
 
 **CLI** (`pip install .../cli`) — Zero LLM deps. Injects templates, logs reports & decisions offline.
 
-**Engine** (`pip install .../engine`) — Full runtime. Powers `ag ask`, `ag refresh`, `ag start-engine`. Supports Gemini, OpenAI, Ollama, or any OpenAI-compatible API.
+**Engine** (`pip install .../engine`) — Multi-agent runtime. Powers `ag-ask`, `ag-refresh`, `ag-mcp`. Supports Gemini, OpenAI, Ollama, or any OpenAI-compatible API.
 
 ```bash
 # Install both for full experience
@@ -171,33 +175,26 @@ ag init my-project --force
 
 Creates `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsurfrules` — each IDE reads its native config file, all pointing to the same `.antigravity/` knowledge base.
 
-### 2. `ag refresh` — Build project intelligence
+### 2. `ag-refresh` — Multi-agent self-learning
 
 ```bash
-ag refresh --workspace my-project
+ag-refresh --workspace my-project
 ```
 
-Scans your codebase (languages, frameworks, structure), feeds the scan to a multi-agent pipeline, writes `.antigravity/conventions.md`, and generates `.antigravity/structure.md` as a code skeleton map for grounded Q&A. Next time your IDE opens, it reads richer context.
+**5-step pipeline:**
+1. Scan codebase (languages, frameworks, structure)
+2. Multi-agent pipeline generates `conventions.md`
+3. Generate `structure.md` structure map
+4. **Dynamically create RefreshModuleAgents** — one per code module, each autonomously reads code and writes a deep knowledge doc to `.antigravity/modules/*.md`
+5. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
 
-### 3. `ag ask` — Query your project
+### 3. `ag-ask` — Router-based Q&A
 
 ```bash
-ag ask "How does auth work in this project?"
+ag-ask "How does auth work in this project?"
 ```
 
-Reads `.antigravity/structure.md`, `.antigravity/conventions.md`, project docs, and memory logs, then uses a Router-Worker ask swarm with scoped code-search tools to return a grounded answer.
-
-### 4. Build tools — Zero config
-
-```python
-# engine/antigravity_engine/tools/my_tool.py
-def check_api_health(url: str) -> str:
-    """Check if an API endpoint is responding."""
-    import requests
-    return "up" if requests.get(url).ok else "down"
-```
-
-Drop a file, restart. The agent discovers it automatically via type hints + docstrings.
+Router reads the `structure.md` map and routes questions to the right **ModuleAgent** (pre-loaded with that module's knowledge doc) or **GitAgent** (understands git history). For cross-module questions, agents can handoff to each other.
 
 ---
 
@@ -224,7 +221,7 @@ All generated by `ag init`. All reference `.antigravity/` for shared project con
 <details>
 <summary><b>MCP Server — Give Claude Code a ChatGPT for your codebase</b></summary>
 
-Instead of reading hundreds of documentation files, Claude Code can call `ask_project` as a live tool — backed by a Router-Worker agent swarm that reads actual source code and returns grounded answers with file paths and line numbers.
+Instead of reading hundreds of documentation files, Claude Code can call `ask_project` as a live tool — backed by a dynamic multi-agent cluster: Router routes questions to the right ModuleAgent, returning grounded answers with file paths and line numbers.
 
 **Setup:**
 
@@ -232,8 +229,8 @@ Instead of reading hundreds of documentation files, Claude Code can call `ask_pr
 # Install engine
 pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
 
-# Scan your project first (builds the knowledge base)
-ag refresh --workspace /path/to/project
+# Refresh knowledge base first (ModuleAgents self-learn each module)
+ag-refresh --workspace /path/to/project
 
 # Register as MCP server in Claude Code
 claude mcp add antigravity ag-mcp -- --workspace /path/to/project
@@ -243,50 +240,48 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 
 | Tool | What it does |
 |:-----|:-------------|
-| `ask_project(question)` | Answer any question about the codebase — where code lives, why decisions were made, how things connect. Returns file paths + line numbers. |
-| `refresh_project(quick?)` | Rebuild the knowledge base after significant changes. `quick=true` only scans changed files. |
-
-**Example — Claude Code calling ask_project:**
-```
-User: "How does the authentication flow work?"
-
-Claude Code calls: ask_project("How does the authentication flow work?")
-  → Router reads structure.md, dispatches to engine/ Worker
-  → Worker searches code, reads auth files, checks git history
-  → Returns: "Login logic is in src/auth.py:login() (line 42).
-              JWT migration was done on 2024-03 for compliance..."
-```
-
-**Without this:** Claude Code guesses, reads random files, or asks you to explain.
-**With this:** Claude Code queries the knowledge engine and gets evidence-based answers.
+| `ask_project(question)` | Router → ModuleAgent/GitAgent answers codebase questions. Returns file paths + line numbers. |
+| `refresh_project(quick?)` | Rebuild knowledge base after significant changes. ModuleAgents re-learn the code. |
 
 </details>
 
 <details>
-<summary><b>Knowledge Hub</b> — Multi-agent project intelligence pipeline</summary>
+<summary><b>Dynamic Multi-Agent Cluster</b> — Module-level self-learning + intelligent routing</summary>
 
-The Hub scans your project, identifies languages/frameworks/structure, and uses a multi-agent pipeline (OpenAI Agent SDK + LiteLLM) to generate living documentation and a structure map for later routing:
+The engine's core is **a dynamically created Agent cluster per code module**:
+
+```
+ ag-refresh:                              ag-ask:
+
+ ┌─ RefreshModule_engine ──→ engine.md    Router (reads structure.md map)
+ ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine (pre-loaded engine.md)
+ └─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-loaded cli.md)
+                                             ├──→ GitAgent (pre-loaded _git.md)
+                                             └──→ Agents can handoff to each other
+```
 
 ```bash
-# Generate conventions and structure map from codebase scan
-ag refresh
+# ModuleAgents self-learn your codebase
+ag-refresh
 
 # Only scan files changed since last refresh
-ag refresh --quick
+ag-refresh --quick
 
-# Ask questions grounded in project context and live code evidence
-ag ask "What testing patterns does this project use?"
+# Router intelligently routes to the right ModuleAgent
+ag-ask "What testing patterns does this project use?"
 
 # Log findings and decisions (no LLM needed)
 ag report "Auth module needs refactoring"
 ag log-decision "Use PostgreSQL" "Team has deep expertise"
 ```
 
-Works with Gemini, OpenAI, Ollama, or any OpenAI-compatible endpoint.
+Works with Gemini, OpenAI, Ollama, or any OpenAI-compatible endpoint. Powered by OpenAI Agent SDK + LiteLLM.
 </details>
 
 <details>
-<summary><b>MCP Integration</b> — Connect external tools (GitHub, databases, filesystems)</summary>
+<summary><b>MCP Integration (Consumer)</b> — Let agents call external tools</summary>
+
+`MCPClientManager` lets your agents connect to external MCP servers (GitHub, databases, etc.), auto-discovering and registering tools.
 
 ```json
 // mcp_servers.json
@@ -303,13 +298,13 @@ Works with Gemini, OpenAI, Ollama, or any OpenAI-compatible endpoint.
 }
 ```
 
-Set `MCP_ENABLED=true` in `.env`. See [MCP docs](docs/en/MCP_INTEGRATION.md).
+Set `MCP_ENABLED=true` in `.env`.
 </details>
 
 <details>
 <summary><b>GitNexus Integration</b> — Optional deep code intelligence via knowledge graph</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a **third-party tool** that builds a code knowledge graph using Tree-sitter AST parsing. Antigravity provides built-in integration hooks — when you install GitNexus separately, `ag ask` automatically detects it and unlocks three additional tools:
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a **third-party tool** that builds a code knowledge graph using Tree-sitter AST parsing. Antigravity provides built-in integration hooks — when you install GitNexus separately, `ag-ask` automatically detects it and unlocks three additional tools:
 
 | Tool | What it does |
 |:-----|:-------------|
@@ -329,39 +324,13 @@ npm install -g gitnexus
 cd my-project
 gitnexus analyze .
 
-# 3. Use ag ask as usual — GitNexus tools are auto-detected
-ag ask "How does the authentication flow work?"
+# 3. Use ag-ask as usual — GitNexus tools are auto-detected
+ag-ask "How does the authentication flow work?"
 ```
 
-**How the integration works:** `ask_tools.py` checks if the `gitnexus` CLI is available on your system. If found, it registers `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` as additional tools for the AreaWorker agents. If not found, these tools are simply absent — zero overhead, no errors.
-
-```
-ag ask without GitNexus:        ag ask with GitNexus:
-  search_code (grep)              search_code (grep)
-  read_file                       read_file
-  list_directory                  list_directory
-  git_file_history                git_file_history
-                                + gitnexus_query (semantic search)
-                                + gitnexus_context (call graph)
-                                + gitnexus_impact (blast radius)
-```
-
-**Alternative: MCP mode** — For the full Agent Engine runtime, GitNexus also provides an MCP server. A pre-configured entry is included in `mcp_servers.json` (disabled by default). Enable it with `gitnexus mcp` and set `"enabled": true`.
+**How the integration works:** `ask_tools.py` checks if the `gitnexus` CLI is available on your system. If found, it registers `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` as additional tools for every ModuleAgent. If not found, these tools are simply absent — zero overhead, no errors.
 </details>
 
-<details>
-<summary><b>Multi-Agent Swarm</b> — Router-Worker orchestration for complex tasks</summary>
-
-```python
-from antigravity_engine.swarm import SwarmOrchestrator
-
-swarm = SwarmOrchestrator()
-result = swarm.execute("Build and review a calculator")
-# Routes to Coder → Reviewer → Researcher, synthesizes results
-```
-
-See [Swarm docs](docs/en/SWARM_PROTOCOL.md).
-</details>
 
 <details>
 <summary><b>Sandbox</b> — Configurable code execution environment</summary>
@@ -391,7 +360,7 @@ OPENAI_MODEL=moonshotai/kimi-k2.5
 **2. Scan your project**
 
 ```bash
-$ ag refresh --workspace .
+$ ag-refresh --workspace .
 Updated .antigravity/conventions.md
 Updated .antigravity/structure.md
 ```
@@ -409,7 +378,7 @@ Generated output (by Kimi K2.5):
 **3. Ask questions**
 
 ```bash
-$ ag ask "What LLM backends does this project support?"
+$ ag-ask "What LLM backends does this project support?"
 Based on the context, the project supports NVIDIA API with Kimi K2.5.
 The architecture uses OpenAI-compatible format, supporting any endpoint
 including local LLMs via LiteLLM, NVIDIA NIM models, etc.

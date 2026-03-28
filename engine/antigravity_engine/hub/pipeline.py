@@ -58,9 +58,45 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     (ag_dir / "conventions.md").write_text(conventions_content, encoding="utf-8")
 
     # Generate structure map (pure Python, no LLM)
-    print("[4/4] Generating structure.md...", file=sys.stderr)
+    print("[4/5] Generating structure.md...", file=sys.stderr)
     structure_content = extract_structure(workspace)
     (ag_dir / "structure.md").write_text(structure_content, encoding="utf-8")
+
+    # Run RefreshModuleAgents — each agent reads its module and writes a knowledge doc
+    print("[5/5] Module agents learning codebase...", file=sys.stderr)
+    from antigravity_engine.hub.agents import (
+        build_refresh_module_swarm,
+        build_refresh_git_agent,
+    )
+
+    try:
+        from agents import Runner
+    except ImportError:
+        raise ImportError(
+            "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
+        ) from None
+
+    module_agents = build_refresh_module_swarm(model, workspace)
+    for mod_name, mod_agent in module_agents:
+        print(f"  → RefreshModule_{mod_name} analyzing...", file=sys.stderr)
+        try:
+            await Runner.run(
+                mod_agent,
+                f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
+            )
+        except Exception as exc:
+            print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+
+    # Run RefreshGitAgent
+    print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
+    try:
+        git_agent = build_refresh_git_agent(model, workspace)
+        await Runner.run(
+            git_agent,
+            "Analyze the project's git history and write your git insights document.",
+        )
+    except Exception as exc:
+        print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)
 
     # Save SHA checkpoint
     current_sha = _get_head_sha(workspace)
@@ -69,6 +105,11 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
     print(f"Updated {ag_dir / 'conventions.md'}")
     print(f"Updated {ag_dir / 'structure.md'}")
+    modules_dir = ag_dir / "modules"
+    if modules_dir.exists():
+        mod_count = len(list(modules_dir.glob("*.md")))
+        print(f"Updated {modules_dir} ({mod_count} module docs)")
+
 
 
 def _read_context_file(path: Path, label: str) -> str | None:

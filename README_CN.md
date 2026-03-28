@@ -6,7 +6,7 @@
 
 ### AI IDE 缺失的认知层。
 
-一条命令，让每个 AI IDE 都成为你代码库的专家。
+动态多智能体集群，让每个 AI IDE 都成为你代码库的专家。
 
 语言: [English](README.md) | **中文** | [Español](README_ES.md)
 
@@ -42,21 +42,21 @@
 
 > **不要给 AI IDE 一本百科全书，要给它一个代码库的 ChatGPT。**
 
-大多数团队把 `CLAUDE.md` 塞满几千行文档，Agent 读完大半忘掉。Antigravity 反其道而行：不是静态知识堆砌，而是给 AI IDE 提供一个**实时问答引擎**——背后是真正读懂你代码的多 Agent 流水线。
+大多数团队把 `CLAUDE.md` 塞满几千行文档，Agent 读完大半忘掉。Antigravity 反其道而行：不是静态知识堆砌，而是部署一个**动态多智能体集群**——每个模块有专属 Agent 自主阅读代码、生成知识文档，Router 按需路由问题到对应 Agent。
 
 ```
 传统做法：                           Antigravity 做法：
   CLAUDE.md = 5000 行文档              Claude Code 调用 ask_project("auth 怎么工作的？")
-  Agent 全部读入，大半遗忘              Router-Worker 读真实源码，返回精准答案
+  Agent 全部读入，大半遗忘              Router → ModuleAgent 读真实源码，返回精准答案
   幻觉率居高不下                       有据可查，带文件路径和行号
 ```
 
 | 痛点 | 没有 Antigravity | 有 Antigravity |
 |:----|:----------------|:--------------|
 | Agent 忘记代码风格 | 反复纠正同样的问题 | 读取 `.antigravity/conventions.md` —— 一次到位 |
-| 接手新代码库 | Agent 只能猜测架构 | `ag refresh` 自动扫描并文档化 |
+| 接手新代码库 | Agent 只能猜测架构 | `ag-refresh` → ModuleAgent 自主学习每个模块 |
 | 切换 IDE | 每个 IDE 规则不同 | 一个 `.antigravity/` 目录 —— 所有 IDE 共享 |
-| 问"X 怎么实现的？" | Agent 胡乱翻文件 | `ask_project` MCP 工具返回带行号的精准答案 |
+| 问"X 怎么实现的？" | Agent 胡乱翻文件 | `ask_project` MCP → Router 精准路由到负责模块的 Agent |
 
 架构是**文件 + 实时问答引擎**，而非插件。跨 IDE、跨 LLM、零平台锁定。
 
@@ -71,7 +71,7 @@ ag init my-project && cd my-project
 # IDE 自动读取 .antigravity/rules.md、.cursorrules、CLAUDE.md、AGENTS.md
 ```
 
-**方案 B —— 完整配置，含实时问答引擎（推荐 Claude Code 用户）**
+**方案 B —— 完整配置，含多智能体问答引擎（推荐 Claude Code 用户）**
 ```bash
 # 1. 注入上下文文件
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
@@ -80,37 +80,35 @@ ag init my-project && cd my-project
 # 2. 安装引擎
 pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
 
-# 3. 在 .env 配置 LLM API Key，然后扫描项目
-ag refresh
+# 3. 在 .env 配置 LLM API Key，然后刷新知识库（ModuleAgent 自主学习每个模块）
+ag-refresh
 
 # 4. 注册为 MCP 服务器 —— Claude Code 可直接调用 ask_project 工具
 claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 ```
 
-配置完成后，Claude Code 需要了解代码库时，会调用 `ask_project("...")` 而不是自己乱猜。
+配置完成后，Claude Code 需要了解代码库时，会调用 `ask_project("...")` —— Router 自动路由到对应模块的 Agent。
 
 ---
 
 ## 功能一览
 
 ```
-  ag init           将上下文文件注入任意项目（--force 可覆盖已有文件）
+  ag init             将上下文文件注入任意项目（--force 可覆盖已有文件）
        │
        ▼
-  .antigravity/     共享知识库 —— 所有 IDE 从这里读取
+  .antigravity/       共享知识库 —— 所有 IDE 从这里读取
        │
-       ├──► ag refresh     多 Agent 扫描 → 生成 conventions.md + structure.md
-       ├──► ag ask         Router-Worker 问答，结合上下文与代码证据
-       └──► ag start-engine   完整 Think-Act-Reflect Agent 运行时
+       ├──► ag-refresh     动态多智能体自主学习 → 生成模块知识文档 + 结构图
+       ├──► ag-ask         Router → ModuleAgent 路由问答，实时代码证据
+       └──► ag-mcp         MCP 服务端 → Claude Code 直接调用
 ```
 
-**知识中枢（Knowledge Hub）** —— 多 Agent 管道扫描代码库，理解语言/框架/结构，生成活文档，并额外产出项目结构图供后续问答使用。基于 OpenAI Agent SDK + LiteLLM，支持 Gemini、OpenAI、Ollama 或任何兼容 API。
+**动态多智能体集群** —— `ag-refresh` 时，每个代码模块动态分配一个 RefreshModuleAgent 自主阅读代码、生成深度知识文档。`ag-ask` 时，Router 根据结构图将问题路由到对应模块的 ModuleAgent，Agent 间可跨模块通讯。基于 OpenAI Agent SDK + LiteLLM。
 
-**零配置工具** —— 将 `.py` 文件放入 `tools/`，添加类型提示和 docstring。Agent 启动时自动发现。
+**GitAgent** —— 专门分析 git 历史的 Agent，了解「谁改了什么、为什么改」。
 
-**无限记忆** —— 递归摘要压缩对话历史，长时间运行不受 Token 限制。
-
-**多 Agent Swarm** —— Router-Worker 编排将任务分配给专家 Agent（Coder、Reviewer、Researcher），综合输出结果。
+**GitNexus 增强（可选）** —— 安装 GitNexus 后自动检测，为 ModuleAgent 解锁语义搜索、调用图、变更影响分析。
 
 ---
 
@@ -120,12 +118,11 @@ claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 |:-----|:-----|:----------:|
 | `ag init <dir>` | 注入认知架构模板 | 否 |
 | `ag init <dir> --force` | 重新注入，覆盖已有文件 | 否 |
-| `ag refresh` | 扫描项目，生成 `.antigravity/conventions.md` 和 `.antigravity/structure.md` | 是 |
-| `ag ask "问题"` | 结合共享上下文和受限代码探索能力回答项目问题 | 是 |
+| `ag-refresh` | 多智能体自主学习代码库，生成模块知识文档 + `conventions.md` + `structure.md` | 是 |
+| `ag-ask "问题"` | Router → ModuleAgent/GitAgent 路由问答 | 是 |
 | `ag-mcp --workspace <dir>` | **启动 MCP 服务器** —— 向 Claude Code 暴露 `ask_project` + `refresh_project` 工具 | 是 |
 | `ag report "内容"` | 记录发现到 `.antigravity/memory/` | 否 |
 | `ag log-decision "决策" "原因"` | 记录架构决策 | 否 |
-| `ag start-engine` | 启动完整 Agent Engine 运行时 | 是 |
 
 所有命令支持 `--workspace <dir>` 参数指向任意目录。
 
@@ -137,19 +134,26 @@ claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 antigravity-workspace-template/
 ├── cli/                     # ag CLI — 轻量，pip 可安装
 │   └── templates/           # .cursorrules, CLAUDE.md, .antigravity/, ...
-└── engine/                  # Agent Engine — 完整运行时 + 知识中枢
+└── engine/                  # 多智能体引擎 + 知识中枢
     └── antigravity_engine/
-        ├── agent.py         # Think-Act-Reflect 循环 (Gemini / OpenAI / Ollama)
-        ├── hub/             # 知识中枢（扫描器 → Agent → 管道）
-        ├── tools/           # 放入 .py 文件 → 自动发现为工具
-        ├── agents/          # 专家 Agent（Coder、Reviewer、Researcher）
-        ├── swarm.py         # 多 Agent 编排（Router-Worker）
+        ├── _cli_entry.py    # ag-ask / ag-refresh 入口
+        ├── config.py        # Pydantic 配置
+        ├── hub/             # ★ 核心：多智能体集群
+        │   ├── agents.py    #   Router + ModuleAgent + GitAgent
+        │   ├── pipeline.py  #   refresh / ask 编排
+        │   ├── ask_tools.py #   代码探索 + GitNexus 工具
+        │   ├── scanner.py   #   项目扫描 + 模块检测
+        │   └── mcp_server.py#   MCP 服务端 (ag-mcp)
+        ├── mcp_client.py    # MCP 消费端（连接外部工具）
+        ├── memory.py        # 持久交互记忆
+        ├── tools/           # MCP 查询工具 + 扩展工具
+        ├── skills/          # 技能加载器
         └── sandbox/         # 代码执行（local / microsandbox）
 ```
 
 **CLI**（`pip install .../cli`）—— 零 LLM 依赖。注入模板，离线记录报告和决策。
 
-**Engine**（`pip install .../engine`）—— 完整运行时。驱动 `ag ask`、`ag refresh`、`ag start-engine`。支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容 API。
+**Engine**（`pip install .../engine`）—— 多智能体运行时。驱动 `ag-ask`、`ag-refresh`、`ag-mcp`。支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容 API。
 
 ```bash
 # 安装两者获取完整体验
@@ -171,33 +175,26 @@ ag init my-project --force
 
 创建 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`、`.windsurfrules` —— 每个 IDE 读取各自的原生配置文件，全部指向同一个 `.antigravity/` 知识库。
 
-### 2. `ag refresh` — 构建项目智能
+### 2. `ag-refresh` — 多智能体自主学习
 
 ```bash
-ag refresh --workspace my-project
+ag-refresh --workspace my-project
 ```
 
-扫描代码库（语言、框架、结构），将扫描结果送入多 Agent 管道，生成 `.antigravity/conventions.md`，并额外产出 `.antigravity/structure.md` 作为代码骨架图，供后续问答使用。下次 IDE 打开时读取到更丰富的上下文。
+**5 步流程：**
+1. 扫描代码库（语言、框架、结构）
+2. 多 Agent 管道生成 `conventions.md`
+3. 生成 `structure.md` 结构图
+4. **动态创建 RefreshModuleAgent**——每个代码模块一个 Agent，自主阅读代码、生成深度知识文档到 `.antigravity/modules/*.md`
+5. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
 
-### 3. `ag ask` — 查询项目
+### 3. `ag-ask` — Router 路由问答
 
 ```bash
-ag ask "这个项目的认证逻辑是怎么实现的？"
+ag-ask "这个项目的认证逻辑是怎么实现的？"
 ```
 
-读取 `.antigravity/structure.md`、`.antigravity/conventions.md`、项目文档和记忆日志，再通过带受限代码搜索工具的 Router-Worker ask swarm 返回有依据的回答。
-
-### 4. 构建工具 — 零配置
-
-```python
-# engine/antigravity_engine/tools/my_tool.py
-def check_api_health(url: str) -> str:
-    """检查 API 端点是否在线。"""
-    import requests
-    return "up" if requests.get(url).ok else "down"
-```
-
-放入文件，重启即可。Agent 通过类型提示 + docstring 自动发现工具。
+Router 读取 `structure.md` 地图，将问题路由到对应的 **ModuleAgent**（预加载了该模块的知识文档）或 **GitAgent**（了解 git 历史）。跨模块问题时 Agent 间可互相 handoff 通讯。
 
 ---
 
@@ -224,7 +221,7 @@ def check_api_health(url: str) -> str:
 <details>
 <summary><b>MCP 服务器 — 给 Claude Code 一个代码库专属 ChatGPT</b></summary>
 
-Claude Code 不再需要读数百个文档文件——它可以直接调用 `ask_project` 工具，背后是真正读懂你代码的 Router-Worker 多 Agent 群，返回带文件路径和行号的精准答案。
+Claude Code 不再需要读数百个文档文件——它可以直接调用 `ask_project` 工具，背后是动态多智能体集群：Router 将问题路由到对应 ModuleAgent，返回带文件路径和行号的精准答案。
 
 **配置步骤：**
 
@@ -232,8 +229,8 @@ Claude Code 不再需要读数百个文档文件——它可以直接调用 `ask
 # 安装引擎
 pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
 
-# 先扫描项目（构建知识库）
-ag refresh --workspace /path/to/project
+# 先刷新知识库（ModuleAgent 自主学习每个模块）
+ag-refresh --workspace /path/to/project
 
 # 注册为 Claude Code 的 MCP 服务器
 claude mcp add antigravity ag-mcp -- --workspace /path/to/project
@@ -243,39 +240,42 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 
 | 工具 | 功能 |
 |:-----|:-----|
-| `ask_project(question)` | 回答任何代码库问题——代码在哪、为什么这样决策、模块间如何关联。返回文件路径 + 行号。 |
-| `refresh_project(quick?)` | 重大改动后重建知识库。`quick=true` 只扫描变更文件。 |
-
-**效果对比：**
-
-| | 没有 ag-mcp | 有 ag-mcp |
-|--|------------|-----------|
-| Claude Code 想了解 auth 模块 | 自己 grep，猜测，有时出错 | 调用 `ask_project("auth 怎么工作的？")` → 精准定位到 `src/auth.py:42` |
-| 问"为什么用 JWT？" | 不知道历史背景 | 从 git 历史 + decisions/log.md 给出决策原因 |
+| `ask_project(question)` | Router → ModuleAgent/GitAgent 回答代码库问题。返回文件路径 + 行号。 |
+| `refresh_project(quick?)` | 重大改动后重建知识库。ModuleAgent 重新学习代码。 |
 
 </details>
 
 <details>
-<summary><b>知识中枢（Knowledge Hub）</b> — 多 Agent 项目智能管道</summary>
+<summary><b>动态多智能体集群</b> — 模块级自学习 + 智能路由</summary>
 
-Hub 扫描你的项目，识别语言/框架/结构，通过多 Agent 管道（OpenAI Agent SDK + LiteLLM）生成活文档，并额外产出结构图供后续路由问答：
+引擎的核心是**按代码模块动态创建的 Agent 集群**：
+
+```
+ ag-refresh 时：                          ag-ask 时：
+
+ ┌─ RefreshModule_engine ──→ engine.md    Router（读 structure.md 地图）
+ ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine（已加载 engine.md）
+ └─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli（已加载 cli.md）
+                                             ├──→ GitAgent（已加载 _git.md）
+                                             └──→ Agent 间可互相 handoff
+```
 
 ```bash
-# 从代码扫描生成规范文档和结构图
-ag refresh
+# 模块 Agent 自主学习代码库
+ag-refresh
 
 # 仅扫描上次刷新后变更的文件
-ag refresh --quick
+ag-refresh --quick
 
-# 基于项目上下文和实时代码证据提问
-ag ask "这个项目用了什么测试模式？"
+# Router 智能路由到对应模块 Agent
+ag-ask "这个项目用了什么测试模式？"
 
 # 记录发现和决策（无需 LLM）
 ag report "认证模块需要重构"
 ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 ```
 
-支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容端点。
+支持 Gemini、OpenAI、Ollama 或任何 OpenAI 兼容端点。基于 OpenAI Agent SDK + LiteLLM。
 </details>
 
 <details>
@@ -302,7 +302,7 @@ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 <details>
 <summary><b>GitNexus 集成</b> — 可选的深度代码智能增强（第三方工具）</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 是一个**第三方工具**，通过 Tree-sitter AST 解析构建代码知识图谱。Antigravity 提供了内置的集成接口——当你单独安装 GitNexus 后，`ag ask` 会自动检测并解锁三个额外工具：
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 是一个**第三方工具**，通过 Tree-sitter AST 解析构建代码知识图谱。Antigravity 提供了内置的集成接口——当你单独安装 GitNexus 后，`ag-ask` 会自动检测并解锁三个额外工具：
 
 | 工具 | 功能 |
 |:-----|:-----|
@@ -322,25 +322,34 @@ npm install -g gitnexus
 cd my-project
 gitnexus analyze .
 
-# 3. 像平常一样使用 ag ask — GitNexus 工具会被自动检测到
-ag ask "认证流程是怎么工作的？"
+# 3. 像平常一样使用 ag-ask — GitNexus 工具会被自动检测到
+ag-ask "认证流程是怎么工作的？"
 ```
 
-**集成原理：** `ask_tools.py` 检查系统中是否有 `gitnexus` CLI。如果找到，就注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` 作为 AreaWorker agent 的额外工具。如果未找到，这些工具不会出现——零开销、无报错。
+**集成原理：** `ask_tools.py` 检查系统中是否有 `gitnexus` CLI。如果找到，就注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` 作为每个 ModuleAgent 的额外工具。如果未找到，这些工具不会出现——零开销、无报错。
 </details>
 
 <details>
-<summary><b>多 Agent Swarm</b> — Router-Worker 编排处理复杂任务</summary>
+<summary><b>MCP 集成（消费端）</b> — 让 Agent 调用外部工具</summary>
 
-```python
-from antigravity_engine.swarm import SwarmOrchestrator
+`MCPClientManager` 让你的 Agent 能连接外部 MCP 服务器（GitHub、数据库等），自动发现并注册工具。
 
-swarm = SwarmOrchestrator()
-result = swarm.execute("构建并审查一个计算器")
-# 自动路由到 Coder → Reviewer → Researcher，综合结果
+```json
+// mcp_servers.json
+{
+  "servers": [
+    {
+      "name": "github",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "enabled": true
+    }
+  ]
+}
 ```
 
-详见 [Swarm 文档](docs/zh/SWARM_PROTOCOL.md)。
+在 `.env` 中设置 `MCP_ENABLED=true`。
 </details>
 
 <details>
@@ -371,7 +380,7 @@ OPENAI_MODEL=moonshotai/kimi-k2.5
 **2. 扫描你的项目**
 
 ```bash
-$ ag refresh --workspace .
+$ ag-refresh --workspace .
 Updated .antigravity/conventions.md
 Updated .antigravity/structure.md
 ```
@@ -389,7 +398,7 @@ Kimi K2.5 生成的输出：
 **3. 提问**
 
 ```bash
-$ ag ask "这个项目支持哪些 LLM 后端？"
+$ ag-ask "这个项目支持哪些 LLM 后端？"
 根据上下文，项目支持通过 NVIDIA API 使用 Kimi K2.5。
 架构使用 OpenAI 兼容格式，支持任何端点，
 包括通过 LiteLLM 使用的本地 LLM、NVIDIA NIM 模型等。

@@ -671,6 +671,191 @@ def full_scan(root: Path) -> ScanReport:
     return report
 
 
+def detect_modules(root: Path) -> list[str]:
+    """Detect top-level code modules in a project.
+
+    A module is a top-level directory that contains source code files.
+    Hidden directories, virtual environments, and common non-code
+    directories are excluded.
+
+    Args:
+        root: Project root directory.
+
+    Returns:
+        List of module names (e.g. ["engine", "cli", "docs"]).
+    """
+    skip = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+        ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
+        ".next", ".nuxt", "target", "vendor", ".antigravity", ".context",
+        "artifacts", ".github", ".agent", ".agents",
+    }
+    venv_dirs = _find_venv_dirs(root)
+    skip = skip | venv_dirs
+
+    modules: list[str] = []
+    try:
+        for item in sorted(root.iterdir()):
+            if not item.is_dir():
+                continue
+            if item.name.startswith(".") or item.name in skip:
+                continue
+            if item.name.endswith(".egg-info"):
+                continue
+            # Only count directories that contain at least one source file
+            has_source = any(
+                f.is_file() and f.suffix.lower() in _LANG_MAP
+                for f in item.rglob("*")
+                if f.is_file()
+                and not _should_skip(f.relative_to(root), venv_dirs)
+            )
+            if has_source:
+                modules.append(item.name)
+    except OSError:
+        pass
+
+    return modules
+
+
+def generate_module_context(root: Path, module_name: str) -> str:
+    """Generate a detailed code structure document for a single module.
+
+    Uses AST/regex extraction (same as extract_structure) but scoped
+    to one module directory.  The result is intended to be the raw
+    material that a RefreshModuleAgent will digest into a knowledge doc.
+
+    Args:
+        root: Project root directory.
+        module_name: Name of the top-level module directory.
+
+    Returns:
+        Markdown string with the module's code skeleton.
+    """
+    module_path = root / module_name
+    if not module_path.is_dir():
+        return f"# {module_name}\n\nModule directory not found."
+
+    venv_dirs = _find_venv_dirs(root)
+    sections: list[str] = [f"# Module: {module_name}\n"]
+
+    dir_files: dict[str, list[Path]] = {}
+    for item in sorted(module_path.rglob("*")):
+        if not item.is_file():
+            continue
+        try:
+            rel = item.relative_to(root)
+        except ValueError:
+            continue
+        if _should_skip(rel, venv_dirs):
+            continue
+        ext = item.suffix.lower()
+        if ext not in _LANG_MAP:
+            continue
+        parent = str(rel.parent) if str(rel.parent) != "." else module_name
+        dir_files.setdefault(parent, []).append(item)
+
+    for dir_path in sorted(dir_files):
+        dir_lines: list[str] = [f"## {dir_path}/"]
+        for fpath in sorted(dir_files[dir_path]):
+            rel = fpath.relative_to(root)
+            ext = fpath.suffix.lower()
+            file_lines: list[str] = []
+
+            if ext == ".py":
+                file_lines = _extract_python_structure(fpath)
+            elif ext in _REGEX_LANG_MAP:
+                file_lines = _extract_regex_structure(fpath, _REGEX_LANG_MAP[ext])
+
+            if file_lines:
+                dir_lines.append(f"### {rel}")
+                dir_lines.extend(file_lines)
+            else:
+                try:
+                    lc = len(fpath.read_text(encoding="utf-8", errors="replace").splitlines())
+                except OSError:
+                    lc = 0
+                dir_lines.append(f"### {rel}  ({lc} lines)")
+
+        sections.append("\n".join(dir_lines))
+
+    return "\n\n".join(sections)
+
+
+def extract_git_insights(root: Path) -> str:
+    """Extract comprehensive git insights for the project.
+
+    Generates a Markdown document with:
+    - Recent commits (last 30)
+    - Per-module change frequency (which modules change most)
+    - Recent active files
+    - Contributors
+
+    Args:
+        root: Project root directory.
+
+    Returns:
+        Markdown string with git analysis, or empty string if git
+        is unavailable.
+    """
+    parts: list[str] = ["# Git Insights\n"]
+
+    # Recent commits (last 30)
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-30", "--format=%h %ai %s"],
+            capture_output=True, text=True, cwd=str(root), check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts.append("## Recent Commits\n```\n" + result.stdout.strip() + "\n```")
+    except FileNotFoundError:
+        return ""
+
+    # Per-module change frequency (last 3 months)
+    modules = detect_modules(root)
+    if modules:
+        freq_lines: list[str] = []
+        for mod in modules:
+            try:
+                result = subprocess.run(
+                    ["git", "log", "--oneline", "--since=3 months ago", "--", f"{mod}/"],
+                    capture_output=True, text=True, cwd=str(root), check=False,
+                )
+                if result.returncode == 0:
+                    count = len(result.stdout.strip().splitlines()) if result.stdout.strip() else 0
+                    freq_lines.append(f"- **{mod}**: {count} commits")
+            except FileNotFoundError:
+                break
+        if freq_lines:
+            parts.append("## Module Change Frequency (3 months)\n" + "\n".join(freq_lines))
+
+    # Recently modified files (last 20 unique)
+    try:
+        result = subprocess.run(
+            ["git", "log", "--name-only", "--pretty=format:", "-20"],
+            capture_output=True, text=True, cwd=str(root), check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            files = list(dict.fromkeys(
+                f.strip() for f in result.stdout.splitlines() if f.strip()
+            ))[:20]
+            parts.append("## Recently Modified Files\n" + "\n".join(f"- {f}" for f in files))
+    except FileNotFoundError:
+        pass
+
+    # Contributors (last 3 months)
+    try:
+        result = subprocess.run(
+            ["git", "shortlog", "-sn", "--since=3 months ago"],
+            capture_output=True, text=True, cwd=str(root), check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts.append("## Contributors (3 months)\n```\n" + result.stdout.strip() + "\n```")
+    except FileNotFoundError:
+        pass
+
+    return "\n\n".join(parts)
+
+
 def quick_scan(root: Path, since_sha: str) -> ScanReport:
     """Perform a quick scan of files changed since a git commit.
 

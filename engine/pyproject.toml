@@ -1,10 +1,9 @@
 [project]
 name = "antigravity-engine"
-version = "0.1.0"
-description = "Production-grade AI agent runtime and Knowledge Hub"
+version = "0.2.0"
+description = "Dynamic multi-agent Knowledge Hub and MCP server"
 requires-python = ">=3.10"
 dependencies = [
-    "google-genai",
     "pydantic",
     "pydantic-settings",
     "python-dotenv",
@@ -14,8 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-ag-engine = "antigravity_engine._cli_entry:engine_main"
-ag-hub = "antigravity_engine._cli_entry:hub_main"
+ag-ask = "antigravity_engine._cli_entry:ask_main"
+ag-refresh = "antigravity_engine._cli_entry:refresh_main"
 ag-mcp = "antigravity_engine.hub.mcp_server:main"
 
 [build-system]

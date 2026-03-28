@@ -165,7 +165,7 @@ def build_refresh_swarm(model: str):
 
 
 # ---------------------------------------------------------------------------
-# Ask Swarm — Router-Worker pattern with scoped area agents
+# Ask Swarm — Dynamic Module-based Router-Worker pattern
 # ---------------------------------------------------------------------------
 
 _ROUTER_INSTRUCTIONS = """\
@@ -177,16 +177,15 @@ in each area, and their purpose.
 
 Your job:
 1. Read the user's question carefully.
-2. Based on the structure map, identify which project area(s) are most
-   likely to contain the answer (e.g. "engine/antigravity_engine/hub/"
-   for a question about the Knowledge Hub).
-3. Hand off to the appropriate **AreaWorker** agent.  Each worker is
-   scoped to a specific directory and has tools to search/read code
-   and check git history **only within that area**.
-4. If the question spans multiple areas, hand off to the worker for
-   the most relevant area first — it will hand back to you if needed.
+2. Based on the structure map, identify which module(s) are most relevant.
+3. Hand off to the appropriate **ModuleAgent**.  Each ModuleAgent has
+   deep knowledge of its module and tools to explore code.
+4. For git-related questions (recent changes, commit history, who changed
+   what), hand off to the **GitAgent**.
+5. For cross-module questions, hand off to one module first, it can
+   hand off to other modules as needed.
 
-When workers return findings, synthesize them into a final answer:
+When agents return findings, synthesize them into a final answer:
 - Lead with a direct answer to the question
 - **Cite specific file paths, line numbers, and function names**
 - Include commit history when it explains "why"
@@ -195,38 +194,120 @@ When workers return findings, synthesize them into a final answer:
 Output ONLY the final answer.  No preamble.
 """
 
-_AREA_WORKER_INSTRUCTIONS_TEMPLATE = """\
-You are an AreaWorker agent responsible for the **{area}** directory.
+_MODULE_AGENT_INSTRUCTIONS_TEMPLATE = """\
+You are a ModuleAgent responsible for the **{module}** module.
 
-You have tools to search code, read files, list directories, and check
-git history — all scoped to your area.  Use them to find concrete
-evidence that answers the Router's question.
+You have deep knowledge of this module (provided below) and tools to
+explore its code in real time.
 
-**Core tools (always available):**
-1. ``search_code`` — find where a function/class/pattern appears.
-2. ``read_file`` — read the actual source code of a file.
-3. ``list_directory`` — explore sub-directories.
-4. ``git_file_history`` — check when/why key files were changed.
+**Your module knowledge:**
+{knowledge}
 
-**GitNexus tools (available when gitnexus is installed):**
-5. ``gitnexus_query`` — semantic search across the knowledge graph
-   (better for "how does auth work" style questions).
-6. ``gitnexus_context`` — 360-degree view of a symbol: callers,
-   callees, references, definition.
-7. ``gitnexus_impact`` — blast radius analysis for a symbol.
+**Your tools:**
+1. ``search_code`` — find where a function/class/pattern appears
+2. ``read_file`` — read actual source code
+3. ``list_directory`` — explore sub-directories
+4. ``git_file_history`` — check when/why files were changed
 
-**Strategy:** Start with search_code for targeted lookups.  If you have
-gitnexus tools, use gitnexus_query for semantic questions and
-gitnexus_context to understand symbol relationships.  Always verify
-findings with read_file to cite exact code.
+**Strategy:** Use your pre-loaded knowledge to answer quickly. Only use
+tools when you need to verify details or find specific code that isn't
+in your knowledge document.
 
-Return your findings with:
-- Exact file paths and line numbers
-- Function/class signatures
-- Relevant code snippets (keep them short)
-- Git commit messages that explain intent
+If the question involves another module, hand off to that module's agent
+or back to the Router.
 
-Be thorough but concise.  Hand off back to Router when done.
+Return findings with exact file paths, line numbers, and code snippets.
+Be thorough but concise.
+"""
+
+_GIT_AGENT_INSTRUCTIONS = """\
+You are the GitAgent, specialized in understanding the project's git
+history and development activity.
+
+You have pre-loaded git insights (provided below) and tools for deeper
+analysis.
+
+**Your git knowledge:**
+{knowledge}
+
+**Your tools:**
+1. ``git_log`` — recent commits, optionally filtered by path
+2. ``git_diff`` — inspect what changed in a specific commit
+3. ``git_blame`` — see who wrote specific lines and when
+4. ``git_file_history`` — history of a specific file
+
+Answer questions about:
+- Recent changes and development activity
+- Who changed what and why
+- Module-level change frequency and trends
+- Specific commit details
+
+If the question requires understanding code logic (not just history),
+hand off to the relevant ModuleAgent or Router.
+
+Be precise — cite commit hashes, dates, authors, and file paths.
+"""
+
+# -- Refresh Module Agents --------------------------------------------------
+
+_REFRESH_MODULE_INSTRUCTIONS_TEMPLATE = """\
+You are a RefreshModuleAgent responsible for analyzing the **{module}** module.
+
+Your job is to thoroughly read and understand all the code in your module,
+then write a comprehensive knowledge document using the ``write_module_doc`` tool.
+
+**Code structure of your module (auto-extracted):**
+{structure}
+
+**Steps:**
+1. Use ``list_directory`` to explore the module structure
+2. Use ``read_file`` to read key source files
+3. Use ``search_code`` to find important patterns and relationships
+4. Use ``git_file_history`` on key files to understand recent changes
+5. Synthesize your understanding into a comprehensive Markdown document
+6. Call ``write_module_doc`` with the document
+
+**Your document MUST cover:**
+- Module purpose and responsibilities (1-2 sentences)
+- Directory structure overview
+- Key files and what each one does
+- Important classes/functions: name, purpose, parameters, relationships
+- Internal data flow: how components call each other
+- Dependencies: what external/internal modules this module imports
+- Design patterns used
+- Public API: what this module exposes to other modules
+- Recent changes: what has been modified recently and why
+
+Write the document in Markdown. Be specific — cite file names, function
+signatures, and class hierarchies. This document will be used by another
+agent to answer questions about this module, so completeness matters.
+"""
+
+_REFRESH_GIT_INSTRUCTIONS = """\
+You are the RefreshGitAgent responsible for analyzing the project's git history.
+
+Your job is to understand the project's development activity and write
+a comprehensive git insights document using the ``write_git_doc`` tool.
+
+**Pre-extracted git data:**
+{git_data}
+
+**Steps:**
+1. Use ``git_log`` to review recent commits across the project
+2. Use ``git_log`` with path filters to see per-module activity
+3. Use ``git_diff`` on interesting commits to understand key changes
+4. Synthesize everything into a comprehensive Markdown document
+5. Call ``write_git_doc`` with the document
+
+**Your document MUST cover:**
+- Development activity summary (last 30 commits overview)
+- Per-module change frequency and which modules are most active
+- Key recent changes: what significant features/fixes were added recently
+- Contributors and their areas of focus
+- Development velocity: are there patterns in the commit history?
+- Notable architectural or breaking changes in recent history
+
+Write in Markdown. Be specific — cite commit hashes, dates, and file paths.
 """
 
 
@@ -253,58 +334,175 @@ def _wrap_tools(tool_dict: dict) -> list:
 def _detect_areas(workspace: Path) -> list[str]:
     """Detect the top-level code areas in a project.
 
-    An "area" is a top-level directory that contains source code files.
-    Directories like .git, node_modules, etc. are excluded.
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        List of module names (e.g. ["engine", "cli", "docs"]).
+    """
+    from antigravity_engine.hub.scanner import detect_modules
+    return detect_modules(workspace)
+
+
+def _read_module_knowledge(workspace: Path, module_name: str) -> str:
+    """Read a pre-generated module knowledge document.
+
+    Args:
+        workspace: Project root directory.
+        module_name: Module name (matches filename without .md).
+
+    Returns:
+        Content of the module document, or a fallback message.
+    """
+    doc_path = workspace / ".antigravity" / "modules" / f"{module_name}.md"
+    if doc_path.is_file():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return "(No pre-generated knowledge available. Use your tools to explore.)"
+
+
+def _read_git_knowledge(workspace: Path) -> str:
+    """Read the pre-generated git insights document.
 
     Args:
         workspace: Project root directory.
 
     Returns:
-        List of relative directory paths (e.g. ["engine", "cli", "docs"]).
+        Content of the git insights document, or a fallback message.
     """
-    skip = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
-        ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
-        ".next", ".nuxt", "target", "vendor", ".antigravity", ".context",
-        "artifacts", ".github",
-    }
-    areas: list[str] = []
-    try:
-        for item in sorted(workspace.iterdir()):
-            if not item.is_dir():
-                continue
-            if item.name.startswith(".") or item.name in skip:
-                continue
-            if item.name.endswith(".egg-info"):
-                continue
-            # Only count directories that contain at least one source file
-            has_source = any(
-                f.is_file() and not f.name.startswith(".")
-                for f in item.rglob("*")
-                if f.is_file()
-            )
-            if has_source:
-                areas.append(item.name)
-    except OSError:
-        pass
+    doc_path = workspace / ".antigravity" / "modules" / "_git_insights.md"
+    if doc_path.is_file():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return "(No pre-generated git insights available. Use your tools to explore.)"
 
-    # Always include root-level source files as a pseudo-area
-    root_files = [
-        f for f in workspace.iterdir()
-        if f.is_file() and f.suffix in (".py", ".js", ".ts", ".go", ".rs")
-    ]
-    if root_files:
-        areas.insert(0, ".")
 
-    return areas
+def _read_structure_map(workspace: Path) -> str:
+    """Read the project structure map for the Router.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Content of structure.md, or a fallback message.
+    """
+    doc_path = workspace / ".antigravity" / "structure.md"
+    if doc_path.is_file():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return "(No structure map available. Run `ag-hub refresh` first.)"
+
+
+# ---------------------------------------------------------------------------
+# Build Refresh Module Swarm
+# ---------------------------------------------------------------------------
+
+
+def build_refresh_module_swarm(
+    model: str,
+    workspace: Path,
+) -> list:
+    """Build RefreshModuleAgents that self-learn their code areas.
+
+    Each agent is given its module's code structure, exploration tools,
+    and a write tool to persist its knowledge document.
+
+    Args:
+        model: Model identifier string.
+        workspace: Project root directory.
+
+    Returns:
+        List of (module_name, Agent) tuples. Run each agent with
+        Runner.run() to trigger self-learning.
+    """
+    Agent = _import_agent()
+
+    from antigravity_engine.hub.scanner import detect_modules, generate_module_context
+    from antigravity_engine.hub.ask_tools import (
+        create_ask_tools,
+        create_write_tools,
+    )
+
+    modules = detect_modules(workspace)
+    agents_list: list = []
+
+    for mod in modules:
+        # Get code structure for this module
+        structure = generate_module_context(workspace, mod)
+
+        # Create tools: code exploration (scoped to module) + write doc
+        mod_path = workspace / mod
+        explore_tools = create_ask_tools(mod_path)
+        write_tools = create_write_tools(workspace, mod)
+        all_tools = {**explore_tools, **write_tools}
+
+        instructions = _REFRESH_MODULE_INSTRUCTIONS_TEMPLATE.format(
+            module=mod,
+            structure=structure,
+        )
+
+        agent = Agent(
+            name=f"RefreshModule_{mod}",
+            instructions=instructions,
+            model=model,
+            tools=_wrap_tools(all_tools),
+        )
+        agents_list.append((mod, agent))
+
+    return agents_list
+
+
+def build_refresh_git_agent(model: str, workspace: Path):
+    """Build the RefreshGitAgent that analyzes git history.
+
+    Args:
+        model: Model identifier string.
+        workspace: Project root directory.
+
+    Returns:
+        The GitAgent. Run with Runner.run() to trigger self-learning.
+    """
+    Agent = _import_agent()
+
+    from antigravity_engine.hub.scanner import extract_git_insights
+    from antigravity_engine.hub.ask_tools import (
+        create_git_tools,
+        create_git_write_tools,
+    )
+
+    git_data = extract_git_insights(workspace)
+    git_tools = create_git_tools(workspace)
+    write_tools = create_git_write_tools(workspace)
+    all_tools = {**git_tools, **write_tools}
+
+    instructions = _REFRESH_GIT_INSTRUCTIONS.format(git_data=git_data)
+
+    return Agent(
+        name="RefreshGitAgent",
+        instructions=instructions,
+        model=model,
+        tools=_wrap_tools(all_tools),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Build Ask Swarm — dynamic module-based
+# ---------------------------------------------------------------------------
 
 
 def build_ask_swarm(model: str, workspace: Optional[Path] = None):
-    """Build the Ask Swarm using a Router-Worker pattern.
+    """Build the Ask Swarm using a dynamic module-based Router-Worker pattern.
 
-    The Router reads the project structure map and dispatches questions
-    to scoped AreaWorker agents.  Each worker has code exploration tools
-    limited to its directory area.
+    Each detected module gets a ModuleAgent pre-loaded with its knowledge
+    document (generated during refresh). A GitAgent handles git-related
+    questions. All agents can handoff to each other for cross-module
+    communication.
 
     Args:
         model: Model identifier string.
@@ -317,7 +515,6 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     Agent = _import_agent()
 
     if workspace is None:
-        # Fallback: single agent, no tools (backward-compatible)
         return Agent(
             name="AskAgent",
             instructions=(
@@ -327,47 +524,81 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
             model=model,
         )
 
-    from antigravity_engine.hub.ask_tools import create_ask_tools
+    from antigravity_engine.hub.ask_tools import (
+        create_ask_tools,
+        create_git_tools,
+    )
 
-    # Detect project areas and create a scoped worker for each.
+    # Detect modules and build ModuleAgents
     areas = _detect_areas(workspace)
     workers: list = []
 
-    for area in areas:
-        area_path = workspace if area == "." else workspace / area
-        area_tools = create_ask_tools(area_path)
-        wrapped = _wrap_tools(area_tools)
+    for mod in areas:
+        knowledge = _read_module_knowledge(workspace, mod)
+        mod_path = workspace / mod
+        mod_tools = create_ask_tools(mod_path)
+        wrapped = _wrap_tools(mod_tools)
 
-        display_name = "(root)" if area == "." else area
-        worker = Agent(
-            name=f"Worker_{area.replace('/', '_').replace('.', 'root')}",
-            instructions=_AREA_WORKER_INSTRUCTIONS_TEMPLATE.format(area=display_name),
+        agent = Agent(
+            name=f"Module_{mod}",
+            instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
+                module=mod,
+                knowledge=knowledge,
+            ),
             model=model,
             tools=wrapped,
         )
-        workers.append(worker)
+        workers.append(agent)
 
-    # Also create a "full project" worker as fallback when no area matches.
+    # Build GitAgent
+    git_knowledge = _read_git_knowledge(workspace)
+    git_tools = create_git_tools(workspace)
+    ask_tools = create_ask_tools(workspace)
+    git_all_tools = {**git_tools}
+    # Add git_file_history from ask_tools if available
+    if "git_file_history" in ask_tools:
+        git_all_tools["git_file_history"] = ask_tools["git_file_history"]
+
+    git_agent = Agent(
+        name="GitAgent",
+        instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
+        model=model,
+        tools=_wrap_tools(git_all_tools),
+    )
+    workers.append(git_agent)
+
+    # Build full-project fallback worker
     full_tools = create_ask_tools(workspace)
     full_worker = Agent(
-        name="Worker_full_project",
-        instructions=_AREA_WORKER_INSTRUCTIONS_TEMPLATE.format(area="entire project"),
+        name="Module_full_project",
+        instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
+            module="entire project",
+            knowledge=_read_structure_map(workspace),
+        ),
         model=model,
         tools=_wrap_tools(full_tools),
     )
     workers.append(full_worker)
 
-    # Router can hand off to any worker; workers hand back to Router.
+    # Build Router — reads structure.md for navigation
+    structure_map = _read_structure_map(workspace)
+    module_list = ", ".join(f"Module_{m}" for m in areas)
+    router_instructions = _ROUTER_INSTRUCTIONS + (
+        f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
+        f"**Project Structure Map:**\n{structure_map}"
+    )
+
     router = Agent(
         name="Router",
-        instructions=_ROUTER_INSTRUCTIONS,
+        instructions=router_instructions,
         model=model,
         handoffs=workers,
     )
 
-    # Workers hand back to Router after completing their investigation.
+    # Enable cross-agent communication:
+    # Every worker can hand off to Router and to every other worker
     for worker in workers:
-        worker.handoffs = [router]
+        worker.handoffs = [router] + [w for w in workers if w is not worker]
 
     return router
 
@@ -399,3 +630,4 @@ def build_reviewer_agent(model: str, workspace: Optional[Path] = None):
         The entry-point Agent for the Ask Swarm.
     """
     return build_ask_swarm(model, workspace=workspace)
+

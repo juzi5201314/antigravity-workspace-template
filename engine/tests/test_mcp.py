@@ -284,45 +284,8 @@ class TestMCPToolsMocked:
         _set_mcp_manager(None)
 
 
-class TestAgentMCPIntegration:
-    """Tests for agent MCP integration."""
 
-    def test_agent_has_mcp_manager_attribute(self):
-        """Test that GeminiAgent has mcp_manager attribute."""
-        from antigravity_engine.agent import GeminiAgent
 
-        agent = GeminiAgent()
-
-        assert hasattr(agent, "mcp_manager")
-
-    def test_agent_has_shutdown_method(self):
-        """Test that GeminiAgent has shutdown method."""
-        from antigravity_engine.agent import GeminiAgent
-
-        agent = GeminiAgent()
-
-        assert hasattr(agent, "shutdown")
-        assert callable(agent.shutdown)
-
-    def test_agent_has_get_mcp_status_method(self):
-        """Test that GeminiAgent has get_mcp_status method."""
-        from antigravity_engine.agent import GeminiAgent
-
-        agent = GeminiAgent()
-
-        assert hasattr(agent, "get_mcp_status")
-        assert callable(agent.get_mcp_status)
-
-    def test_agent_mcp_status_when_disabled(self):
-        """Test MCP status when MCP is disabled."""
-        from antigravity_engine.agent import GeminiAgent
-
-        agent = GeminiAgent()
-        status = agent.get_mcp_status()
-
-        assert "enabled" in status
-        assert "initialized" in status
-        assert "servers" in status
 
 
 class TestMCPClientManagerConfigLoading:

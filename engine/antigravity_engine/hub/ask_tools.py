@@ -384,3 +384,227 @@ def create_ask_tools(workspace: Path) -> dict[str, Callable]:
     tools.update(gitnexus_tools)
 
     return tools
+
+
+# ---------------------------------------------------------------------------
+# Git tools — deeper git analysis for GitAgent
+# ---------------------------------------------------------------------------
+
+
+def create_git_tools(workspace: Path) -> dict[str, Callable]:
+    """Create git-focused tools for the GitAgent.
+
+    These tools provide deeper git analysis beyond simple file history,
+    including log browsing, diff inspection, and blame analysis.
+
+    Args:
+        workspace: Absolute path to the user's project root.
+
+    Returns:
+        Dict mapping tool name to its implementation function.
+    """
+    ws = workspace.resolve()
+
+    def git_log(limit: int = 20, path: str = "") -> str:
+        """Show recent git commit history, optionally filtered by path.
+
+        Args:
+            limit: Maximum number of commits to show (default 20, max 50).
+            path: Optional relative path to filter commits by
+                (e.g. "engine/" for engine module only).
+
+        Returns:
+            Formatted commit history with hash, date, author, and message.
+        """
+        limit = min(max(1, limit), 50)
+        cmd = [
+            "git", "log",
+            f"--max-count={limit}",
+            "--format=%h %ai %an | %s",
+        ]
+        if path:
+            target = (ws / path).resolve()
+            if not _is_safe_path(ws, target):
+                return f"Error: path '{path}' is outside the project."
+            cmd.extend(["--", path])
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=str(ws), check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return "No git history found."
+            return f"Git log ({limit} commits):\n{result.stdout.strip()}"
+        except FileNotFoundError:
+            return "Git is not available."
+
+    def git_diff(commit_hash: str) -> str:
+        """Show the diff of a specific commit.
+
+        Use this to understand what changed in a particular commit.
+
+        Args:
+            commit_hash: Short or full git commit hash.
+
+        Returns:
+            The diff output for the commit, truncated to 3000 chars.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "diff", f"{commit_hash}~1", commit_hash, "--stat"],
+                capture_output=True, text=True,
+                cwd=str(ws), check=False,
+            )
+            stat = result.stdout.strip() if result.returncode == 0 else ""
+
+            result = subprocess.run(
+                ["git", "diff", f"{commit_hash}~1", commit_hash],
+                capture_output=True, text=True,
+                cwd=str(ws), check=False,
+            )
+            if result.returncode != 0:
+                return f"Error: could not get diff for '{commit_hash}'."
+
+            diff = result.stdout.strip()
+            header = f"Diff for {commit_hash}:\n\n{stat}\n\n"
+            if len(diff) > 3000:
+                diff = diff[:3000] + "\n... (truncated)"
+            return header + diff
+        except FileNotFoundError:
+            return "Git is not available."
+
+    def git_blame(file_path: str, start_line: int = 1, end_line: int = 50) -> str:
+        """Show git blame for a range of lines in a file.
+
+        Use this to understand who wrote specific code and when.
+
+        Args:
+            file_path: Relative path from the project root.
+            start_line: First line to blame (1-based, default 1).
+            end_line: Last line to blame (default 50).
+
+        Returns:
+            Blame output with author, date, and line content.
+        """
+        target = (ws / file_path).resolve()
+        if not _is_safe_path(ws, target):
+            return f"Error: path '{file_path}' is outside the project."
+        if not target.is_file():
+            return f"Error: '{file_path}' does not exist."
+
+        start_line = max(1, start_line)
+        end_line = max(start_line, min(end_line, start_line + 100))
+
+        try:
+            result = subprocess.run(
+                [
+                    "git", "blame",
+                    f"-L{start_line},{end_line}",
+                    "--date=short",
+                    "--", file_path,
+                ],
+                capture_output=True, text=True,
+                cwd=str(ws), check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return f"No blame info for '{file_path}'."
+            return f"Blame for {file_path} (lines {start_line}-{end_line}):\n{result.stdout.strip()}"
+        except FileNotFoundError:
+            return "Git is not available."
+
+    return {
+        "git_log": git_log,
+        "git_diff": git_diff,
+        "git_blame": git_blame,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Write tools — used by RefreshModuleAgents during refresh to persist docs
+# ---------------------------------------------------------------------------
+
+
+def create_write_tools(workspace: Path, module_name: str) -> dict[str, Callable]:
+    """Create tools for a RefreshModuleAgent to write its knowledge doc.
+
+    Args:
+        workspace: Absolute path to the user's project root.
+        module_name: Name of the module this agent is responsible for.
+
+    Returns:
+        Dict with a single ``write_module_doc`` tool.
+    """
+    ws = workspace.resolve()
+    modules_dir = ws / ".antigravity" / "modules"
+
+    def write_module_doc(content: str) -> str:
+        """Write the module knowledge document.
+
+        After reading and analyzing all the code in your module area,
+        call this tool with a comprehensive Markdown document that
+        captures your deep understanding of the module.
+
+        The document should include:
+        - Module purpose and responsibilities
+        - Key files and what each one does
+        - Important classes and functions with their roles
+        - Internal data flow and call relationships
+        - Dependencies on other modules
+        - Design patterns used
+        - Public API / interfaces exposed to other modules
+
+        Args:
+            content: Full Markdown content of the knowledge document.
+
+        Returns:
+            Confirmation message.
+        """
+        modules_dir.mkdir(parents=True, exist_ok=True)
+        doc_path = modules_dir / f"{module_name}.md"
+        doc_path.write_text(content, encoding="utf-8")
+        return f"Successfully wrote {doc_path.relative_to(ws)}"
+
+    return {
+        "write_module_doc": write_module_doc,
+    }
+
+
+def create_git_write_tools(workspace: Path) -> dict[str, Callable]:
+    """Create tools for the RefreshGitAgent to write its knowledge doc.
+
+    Args:
+        workspace: Absolute path to the user's project root.
+
+    Returns:
+        Dict with a single ``write_git_doc`` tool.
+    """
+    ws = workspace.resolve()
+    modules_dir = ws / ".antigravity" / "modules"
+
+    def write_git_doc(content: str) -> str:
+        """Write the git insights knowledge document.
+
+        After analyzing the project's git history, call this tool
+        with a comprehensive Markdown document covering:
+        - Recent development activity
+        - Per-module change frequency
+        - Key contributors
+        - Notable recent changes and their impact
+        - Development velocity and trends
+
+        Args:
+            content: Full Markdown content of the git knowledge document.
+
+        Returns:
+            Confirmation message.
+        """
+        modules_dir.mkdir(parents=True, exist_ok=True)
+        doc_path = modules_dir / "_git_insights.md"
+        doc_path.write_text(content, encoding="utf-8")
+        return f"Successfully wrote {doc_path.relative_to(ws)}"
+
+    return {
+        "write_git_doc": write_git_doc,
+    }
+
