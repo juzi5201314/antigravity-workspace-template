@@ -215,7 +215,7 @@ explore its code in real time.
 2. ``read_file`` — read actual source code
 3. ``list_directory`` — explore sub-directories
 4. ``git_file_history`` — check when/why files were changed
-
+{mcp_tools_section}
 **Strategy:** Use your pre-loaded knowledge to answer quickly. Only use
 tools when you need to verify details or find specific code that isn't
 in your knowledge document.
@@ -225,6 +225,13 @@ or back to the Router.
 
 Return findings with exact file paths, line numbers, and code snippets.
 Be thorough but concise.
+"""
+
+_MCP_TOOLS_ADDENDUM = """
+**External MCP tools (connected via MCP protocol):**
+{mcp_tool_list}
+Use these tools when the question requires data beyond the local codebase
+(e.g. GitHub issues, database queries, web search).
 """
 
 _GIT_AGENT_INSTRUCTIONS = """\
@@ -503,7 +510,11 @@ def build_refresh_git_agent(model: str, workspace: Path):
 # ---------------------------------------------------------------------------
 
 
-def build_ask_swarm(model: str, workspace: Optional[Path] = None):
+def build_ask_swarm(
+    model: str,
+    workspace: Optional[Path] = None,
+    mcp_tools: Optional[dict] = None,
+):
     """Build the Ask Swarm using a dynamic module-based Router-Worker pattern.
 
     Each detected module gets a ModuleAgent pre-loaded with its knowledge
@@ -511,10 +522,17 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     questions. All agents can handoff to each other for cross-module
     communication.
 
+    When *mcp_tools* is provided (dict of name→callable from
+    MCPClientManager), those tools are injected into every worker agent
+    so they can call external services (GitHub, databases, search, etc.).
+
     Args:
         model: Model identifier string.
         workspace: Project root directory.  When ``None`` the swarm
             falls back to a single agent without tools.
+        mcp_tools: Optional dict of MCP tool callables from
+            MCPClientManager.get_all_tools_as_callables(). When provided,
+            these are wrapped and added to every worker agent.
 
     Returns:
         The entry-point Agent (Router). Pass it to Runner.run().
@@ -536,6 +554,21 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         create_git_tools,
     )
 
+    # Wrap MCP tools once (shared across all agents)
+    wrapped_mcp: list = []
+    mcp_tools_section = ""
+    mcp_capability_note = ""
+    if mcp_tools:
+        wrapped_mcp = _wrap_tools(mcp_tools)
+        tool_names = list(mcp_tools.keys())
+        mcp_tool_list = "\n".join(f"- ``{n}``" for n in tool_names)
+        mcp_tools_section = _MCP_TOOLS_ADDENDUM.format(
+            mcp_tool_list=mcp_tool_list,
+        )
+        mcp_capability_note = (
+            f"\n\n**MCP tools available** (all agents): {', '.join(tool_names)}"
+        )
+
     # Detect modules and build ModuleAgents
     areas = _detect_areas(workspace)
     workers: list = []
@@ -544,13 +577,14 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         knowledge = _read_module_knowledge(workspace, mod)
         mod_path = workspace / mod
         mod_tools = create_ask_tools(mod_path)
-        wrapped = _wrap_tools(mod_tools)
+        wrapped = _wrap_tools(mod_tools) + wrapped_mcp
 
         agent = Agent(
             name=f"Module_{mod}",
             instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
                 module=mod,
                 knowledge=knowledge,
+                mcp_tools_section=mcp_tools_section,
             ),
             model=model,
             tools=wrapped,
@@ -570,7 +604,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         name="GitAgent",
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
-        tools=_wrap_tools(git_all_tools),
+        tools=_wrap_tools(git_all_tools) + wrapped_mcp,
     )
     workers.append(git_agent)
 
@@ -581,9 +615,10 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
             module="entire project",
             knowledge=_read_structure_map(workspace),
+            mcp_tools_section=mcp_tools_section,
         ),
         model=model,
-        tools=_wrap_tools(full_tools),
+        tools=_wrap_tools(full_tools) + wrapped_mcp,
     )
     workers.append(full_worker)
 
@@ -593,6 +628,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     router_instructions = _ROUTER_INSTRUCTIONS + (
         f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
         f"**Project Structure Map:**\n{structure_map}"
+        + mcp_capability_note
     )
 
     router = Agent(

@@ -178,6 +178,10 @@ def _build_ask_context(workspace: Path) -> str:
 async def ask_pipeline(workspace: Path, question: str) -> str:
     """Answer a question about the project.
 
+    If ``MCP_ENABLED=true`` in ``.env``, the pipeline will connect to
+    configured MCP servers and inject their tools into every ModuleAgent,
+    giving agents access to external services (GitHub, databases, etc.).
+
     Args:
         workspace: Project root directory.
         question: Natural language question.
@@ -200,7 +204,28 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     context = _build_ask_context(workspace)
     prompt = f"Project context:\n{context}\n\nQuestion: {question}"
 
-    agent = build_ask_swarm(model, workspace=workspace)
+    # --- MCP consumer: connect to external tool servers ---
+    mcp_tools: dict | None = None
+    mcp_manager = None
+
+    if settings.MCP_ENABLED:
+        print("[…] Connecting to MCP servers...", file=sys.stderr)
+        try:
+            from antigravity_engine.mcp_client import MCPClientManager
+
+            mcp_manager = MCPClientManager()
+            await mcp_manager.initialize()
+            mcp_tools = mcp_manager.get_all_tools_as_callables()
+            if mcp_tools:
+                logger.info("MCP tools loaded: %s", list(mcp_tools.keys()))
+            else:
+                logger.info("MCP enabled but no tools discovered")
+        except Exception as exc:
+            logger.warning("MCP initialization failed: %s", exc)
+            print(f"  ⚠ MCP init failed: {exc}", file=sys.stderr)
+            mcp_manager = None
+
+    agent = build_ask_swarm(model, workspace=workspace, mcp_tools=mcp_tools)
     try:
         from agents import Runner
     except ImportError:
@@ -210,7 +235,15 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
 
-    result = await Runner.run(agent, prompt, max_turns=25)
+    try:
+        result = await Runner.run(agent, prompt, max_turns=25)
+    finally:
+        # --- MCP cleanup: always disconnect ---
+        if mcp_manager is not None:
+            try:
+                await mcp_manager.shutdown()
+            except Exception as exc:
+                logger.warning("MCP shutdown error: %s", exc)
 
     print("[3/3] Synthesizing answer...", file=sys.stderr)
 
