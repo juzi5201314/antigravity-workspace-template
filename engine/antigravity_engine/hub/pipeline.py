@@ -11,8 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 
 async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     """Scan project and update .antigravity/conventions.md.

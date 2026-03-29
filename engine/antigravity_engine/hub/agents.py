@@ -231,13 +231,6 @@ function/class names. For non-code files, include file path + metadata cues.
 Be thorough but concise.
 """
 
-_MCP_TOOLS_ADDENDUM = """
-**External MCP tools (connected via MCP protocol):**
-{mcp_tool_list}
-Use these tools when the question requires data beyond the local codebase
-(e.g. GitHub issues, database queries, web search).
-"""
-
 _GIT_AGENT_INSTRUCTIONS = """\
 You are the GitAgent, specialized in understanding the project's git
 history and development activity.
@@ -514,11 +507,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
 # ---------------------------------------------------------------------------
 
 
-def build_ask_swarm(
-    model: str,
-    workspace: Optional[Path] = None,
-    mcp_tools: Optional[dict] = None,
-):
+def build_ask_swarm(model: str, workspace: Optional[Path] = None):
     """Build the Ask Swarm using a dynamic module-based Router-Worker pattern.
 
     Each detected module gets a ModuleAgent pre-loaded with its knowledge
@@ -588,7 +577,6 @@ def build_ask_swarm(
             instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
                 module=mod,
                 knowledge=knowledge,
-                mcp_tools_section=mcp_tools_section,
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
@@ -609,7 +597,7 @@ def build_ask_swarm(
         name="GitAgent",
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
-        tools=_wrap_tools(git_all_tools) + wrapped_mcp,
+        tools=_wrap_tools(git_all_tools),
     )
     workers.append(git_agent)
 
@@ -621,10 +609,9 @@ def build_ask_swarm(
         instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
             module="entire project",
             knowledge=_read_structure_map(workspace),
-            mcp_tools_section=mcp_tools_section,
         ),
         model=model,
-        tools=_wrap_tools(full_tools) + wrapped_mcp,
+        tools=_wrap_tools(full_tools),
     )
     workers.append(full_worker)
 
