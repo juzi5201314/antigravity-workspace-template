@@ -28,8 +28,10 @@ def create_model(settings: "Settings") -> str:
 
     When a custom OPENAI_BASE_URL is provided (e.g. NVIDIA, Ollama), the
     model is routed through litellm so that the Agent SDK can reach the
-    non-standard endpoint.  The function also exports OPENAI_API_BASE for
-    litellm discovery.
+    non-standard endpoint.  Environment variables required by litellm are
+    set via ``os.environ[…]`` (overwrite, not setdefault) so that the
+    *current* settings always take effect — avoiding first-caller-wins bugs
+    in long-lived processes.
 
     Args:
         settings: Application settings.
@@ -45,11 +47,12 @@ def create_model(settings: "Settings") -> str:
     if settings.GOOGLE_API_KEY:
         return f"litellm/gemini/{settings.GEMINI_MODEL_NAME}"
 
-    # Custom endpoint (NVIDIA, Ollama, etc.) — route through litellm
+    # Custom endpoint (NVIDIA, Ollama, etc.) — route through litellm.
+    # Use os.environ[…] = … (not setdefault) so settings always win.
     if settings.OPENAI_BASE_URL:
-        os.environ.setdefault("OPENAI_API_BASE", settings.OPENAI_BASE_URL)
+        os.environ["OPENAI_API_BASE"] = settings.OPENAI_BASE_URL
         if settings.OPENAI_API_KEY:
-            os.environ.setdefault("OPENAI_API_KEY", settings.OPENAI_API_KEY)
+            os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
         return f"litellm/openai/{settings.OPENAI_MODEL}"
 
     # Standard OpenAI (no custom base URL)
@@ -351,16 +354,30 @@ def _wrap_tools(tool_dict: dict) -> list:
 
 
 def _detect_areas(workspace: Path) -> list[str]:
-    """Detect the top-level code areas in a project.
+    """Detect code areas in a project (with two-level resolution).
 
     Args:
         workspace: Project root directory.
 
     Returns:
-        List of module names (e.g. ["engine", "cli", "docs"]).
+        List of module identifiers (e.g. ``["engine_hub", "engine_tools", "cli"]``).
     """
     from antigravity_engine.hub.scanner import detect_modules
     return detect_modules(workspace)
+
+
+def _resolve_module_path(workspace: Path, module_id: str) -> Path:
+    """Resolve a module identifier to its filesystem directory.
+
+    Args:
+        workspace: Project root directory.
+        module_id: Module identifier from :func:`_detect_areas`.
+
+    Returns:
+        Absolute path to the module directory.
+    """
+    from antigravity_engine.hub.scanner import resolve_module_path
+    return resolve_module_path(workspace, module_id)
 
 
 def _read_module_knowledge(workspace: Path, module_name: str) -> str:
@@ -442,7 +459,7 @@ def build_refresh_module_swarm(
     """
     Agent = _import_agent()
 
-    from antigravity_engine.hub.scanner import detect_modules, generate_module_context
+    from antigravity_engine.hub.scanner import detect_modules, generate_module_context, resolve_module_path
     from antigravity_engine.hub.ask_tools import (
         create_ask_tools,
         create_write_tools,
@@ -452,11 +469,11 @@ def build_refresh_module_swarm(
     agents_list: list = []
 
     for mod in modules:
+        mod_path = resolve_module_path(workspace, mod)
         # Get code structure for this module
-        structure = generate_module_context(workspace, mod)
+        structure = generate_module_context(workspace, mod_path.name)
 
         # Create tools: code exploration (scoped to module) + write doc
-        mod_path = workspace / mod
         explore_tools = create_ask_tools(mod_path)
         write_tools = create_write_tools(workspace, mod)
         all_tools = {**explore_tools, **write_tools}
@@ -578,7 +595,7 @@ def build_ask_swarm(
 
     for mod in areas:
         knowledge = _read_module_knowledge(workspace, mod)
-        mod_path = workspace / mod
+        mod_path = _resolve_module_path(workspace, mod)
         mod_tools = create_ask_tools(mod_path)
         # Reuse globally loaded skill tools to avoid repeated scanning overhead.
         mod_tools.update(shared_skill_tools)
@@ -647,10 +664,11 @@ def build_ask_swarm(
         handoffs=workers,
     )
 
-    # Enable cross-agent communication:
-    # Every worker can hand off to Router and to every other worker
+    # Star topology: workers hand off back to Router only.
+    # This avoids O(N²) handoff references and keeps the Router as
+    # the single routing authority for cross-module questions.
     for worker in workers:
-        worker.handoffs = [router] + [w for w in workers if w is not worker]
+        worker.handoffs = [router]
 
     return router
 

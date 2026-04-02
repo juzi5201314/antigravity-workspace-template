@@ -3,9 +3,14 @@
 Extracted from ``ask_tools.py`` to separate the retrieval-graph
 recording/storage concern from the tool implementations themselves.
 
-Every tool invocation emits a lossless graph artifact that is:
+Depending on mode, each tool invocation can emit a lossless graph record that is:
 1. Written as JSON + Markdown + Mermaid to ``.antigravity/retrieval_graphs/``
 2. Appended to the persistent graph store (JSONL) in ``.antigravity/graph/``
+
+Recording behavior is controlled by ``AG_RETRIEVAL_MODE``:
+- ``off``: disable retrieval graph recording entirely
+- ``compact``: append JSONL graph store + latest markdown only (default)
+- ``full``: write all retrieval artifacts and graph store updates
 """
 from __future__ import annotations
 
@@ -26,6 +31,19 @@ from antigravity_engine.hub._utils import env_int
 # Helpers
 # ---------------------------------------------------------------------------
 
+_RETRIEVAL_MODE_DEFAULT = "compact"
+_RETRIEVAL_MODE_VALUES = {"off", "compact", "full"}
+
+
+def _get_retrieval_mode() -> str:
+    """Return the normalized retrieval recording mode."""
+    raw_mode = os.environ.get("AG_RETRIEVAL_MODE", _RETRIEVAL_MODE_DEFAULT)
+    mode = raw_mode.strip().lower()
+    if mode in _RETRIEVAL_MODE_VALUES:
+        return mode
+    return _RETRIEVAL_MODE_DEFAULT
+
+
 def _trim_file_to_last_lines(path: Path, max_lines: int) -> None:
     """Keep only the most recent N lines in a text file."""
     if max_lines <= 0 or not path.exists() or not path.is_file():
@@ -34,7 +52,7 @@ def _trim_file_to_last_lines(path: Path, max_lines: int) -> None:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return
-    if len(lines) <= max_lines:
+    if len(lines) <= (max_lines * 2):
         return
     trimmed = "\n".join(lines[-max_lines:]) + "\n"
     try:
@@ -169,6 +187,10 @@ def record_retrieval_graph(
     raw_output: str,
 ) -> None:
     """Persist one lossless graph artifact per tool retrieval call."""
+    mode = _get_retrieval_mode()
+    if mode == "off":
+        return
+
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     retrieval_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}_{uuid4().hex[:8]}"
 
@@ -220,26 +242,27 @@ def record_retrieval_graph(
         "edges": edges,
     }
 
-    out_dir = workspace / ".antigravity" / "retrieval_graphs"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe_tool = re.sub(r"[^0-9A-Za-z_-]", "_", tool_name)
-    base = out_dir / f"{safe_tool}_{retrieval_id}"
+    if mode == "full":
+        out_dir = workspace / ".antigravity" / "retrieval_graphs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        safe_tool = re.sub(r"[^0-9A-Za-z_-]", "_", tool_name)
+        base = out_dir / f"{safe_tool}_{retrieval_id}"
 
-    (base.with_suffix(".json")).write_text(
-        json.dumps(graph, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (base.with_suffix(".md")).write_text(
-        render_retrieval_graph_markdown(graph),
-        encoding="utf-8",
-    )
-    (base.with_suffix(".mmd")).write_text(
-        render_retrieval_graph_mermaid(graph),
-        encoding="utf-8",
-    )
+        (base.with_suffix(".json")).write_text(
+            json.dumps(graph, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (base.with_suffix(".md")).write_text(
+            render_retrieval_graph_markdown(graph),
+            encoding="utf-8",
+        )
+        (base.with_suffix(".mmd")).write_text(
+            render_retrieval_graph_mermaid(graph),
+            encoding="utf-8",
+        )
 
-    max_artifacts = env_int("AG_RETRIEVAL_ARTIFACT_MAX_FILES", 300, minimum=1)
-    _prune_retrieval_artifacts(out_dir, max_artifacts)
+        max_artifacts = env_int("AG_RETRIEVAL_ARTIFACT_MAX_FILES", 300, minimum=1)
+        _prune_retrieval_artifacts(out_dir, max_artifacts)
 
     _append_knowledge_graph_store(workspace, graph)
 
@@ -329,6 +352,9 @@ def wrap_retrieval_tools(workspace: Path, tools: dict[str, Callable]) -> dict[st
     Returns:
         New dict with the same keys but wrapped callables.
     """
+    if _get_retrieval_mode() == "off":
+        return tools
+
     wrapped_tools: dict[str, Callable] = {}
     for tool_name, fn in tools.items():
         sig = inspect.signature(fn)

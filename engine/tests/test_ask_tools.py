@@ -157,20 +157,31 @@ def test_git_file_history_with_repo(tmp_path: Path) -> None:
     assert "initial version" in result
 
 
-def test_search_code_records_retrieval_graph_artifacts(tmp_path: Path) -> None:
-    """Tool calls should persist retrieval graph artifacts for later reuse."""
+def test_search_code_records_retrieval_graph_artifacts(tmp_path: Path, monkeypatch) -> None:
+    """Tool calls should persist retrieval graph artifacts for later reuse.
+
+    The default AG_RETRIEVAL_MODE is ``compact`` which only writes JSONL
+    stores.  We test both compact (JSONL) and full (.json artifact) modes.
+    """
     (tmp_path / "app.py").write_text("def login(user, pw):\n    return True\n")
 
+    # Test compact mode (default): JSONL stores are created
     tools = _make_tools(tmp_path)
     result = tools["search_code"]("login")
 
     assert "app.py" in result
 
-    retrieval_dir = tmp_path / ".antigravity" / "retrieval_graphs"
     graph_dir = tmp_path / ".antigravity" / "graph"
-    assert list(retrieval_dir.glob("*.json"))
     assert (graph_dir / "nodes.jsonl").exists()
     assert (graph_dir / "edges.jsonl").exists()
 
     nodes_text = (graph_dir / "nodes.jsonl").read_text(encoding="utf-8")
     assert "search_code" in nodes_text
+
+    # Test full mode: .json artifacts are also created
+    monkeypatch.setenv("AG_RETRIEVAL_MODE", "full")
+    tools_full = _make_tools(tmp_path)
+    tools_full["search_code"]("login")
+
+    retrieval_dir = tmp_path / ".antigravity" / "retrieval_graphs"
+    assert list(retrieval_dir.glob("*.json"))

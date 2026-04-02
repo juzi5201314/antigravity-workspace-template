@@ -27,7 +27,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
     set_tracing_disabled(True)
 
-    from antigravity_engine.config import Settings
+    from antigravity_engine.config import get_settings
     from antigravity_engine.hub.agents import build_refresh_agent, create_model
     from antigravity_engine.hub.scanner import (
         build_knowledge_graph,
@@ -38,7 +38,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         render_knowledge_graph_mermaid,
     )
 
-    settings = Settings()
+    settings = get_settings()
     model = create_model(settings)
 
     sha_file = workspace / ".antigravity" / ".last_refresh_sha"
@@ -127,30 +127,37 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
     (ag_dir / "conventions.md").write_text(conventions_content, encoding="utf-8")
 
-    print("[4/7] Generating structure.md...", file=sys.stderr)
-    structure_content = extract_structure(workspace)
-    (ag_dir / "structure.md").write_text(structure_content, encoding="utf-8")
+    # In quick mode the ScanReport only contains changed files, so
+    # rebuilding structure / knowledge-graph / non-code indexes from it
+    # would overwrite the full artifacts with near-empty content.
+    # Skip these stages and keep the previous full-refresh output.
+    if not quick:
+        print("[4/7] Generating structure.md...", file=sys.stderr)
+        structure_content = extract_structure(workspace)
+        (ag_dir / "structure.md").write_text(structure_content, encoding="utf-8")
 
-    print("[5/7] Building knowledge graph artifacts...", file=sys.stderr)
-    graph = build_knowledge_graph(workspace, report)
-    (ag_dir / "knowledge_graph.json").write_text(
-        json.dumps(graph, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (ag_dir / "knowledge_graph.md").write_text(
-        render_knowledge_graph_markdown(graph),
-        encoding="utf-8",
-    )
-    (ag_dir / "knowledge_graph.mmd").write_text(
-        render_knowledge_graph_mermaid(graph),
-        encoding="utf-8",
-    )
+        print("[5/7] Building knowledge graph artifacts...", file=sys.stderr)
+        graph = build_knowledge_graph(workspace, report)
+        (ag_dir / "knowledge_graph.json").write_text(
+            json.dumps(graph, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (ag_dir / "knowledge_graph.md").write_text(
+            render_knowledge_graph_markdown(graph),
+            encoding="utf-8",
+        )
+        (ag_dir / "knowledge_graph.mmd").write_text(
+            render_knowledge_graph_mermaid(graph),
+            encoding="utf-8",
+        )
 
-    print("[6/7] Writing document/data/media indexes...", file=sys.stderr)
-    doc_index, data_overview, media_manifest = _build_non_code_indexes(report)
-    (ag_dir / "document_index.md").write_text(doc_index, encoding="utf-8")
-    (ag_dir / "data_overview.md").write_text(data_overview, encoding="utf-8")
-    (ag_dir / "media_manifest.md").write_text(media_manifest, encoding="utf-8")
+        print("[6/7] Writing document/data/media indexes...", file=sys.stderr)
+        doc_index, data_overview, media_manifest = _build_non_code_indexes(report)
+        (ag_dir / "document_index.md").write_text(doc_index, encoding="utf-8")
+        (ag_dir / "data_overview.md").write_text(data_overview, encoding="utf-8")
+        (ag_dir / "media_manifest.md").write_text(media_manifest, encoding="utf-8")
+    else:
+        print("[4-6/7] Quick mode: keeping existing structure/graph/index artifacts.", file=sys.stderr)
 
     if not refresh_scan_only:
         print("[7/7] Module agents learning codebase...", file=sys.stderr)
@@ -168,6 +175,18 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
         module_agents = build_refresh_module_swarm(model, workspace)
         module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
+
+        # In quick mode, only run agents for modules affected by changed files.
+        if quick:
+            affected = _compute_affected_modules(report, [m for m, _ in module_agents])
+            if affected is not None:
+                original_count = len(module_agents)
+                module_agents = [(m, a) for m, a in module_agents if m in affected]
+                print(
+                    f"  Quick mode: {len(module_agents)}/{original_count} modules affected.",
+                    file=sys.stderr,
+                )
+
         for mod_name, mod_agent in module_agents:
             print(f"  → RefreshModule_{mod_name} analyzing...", file=sys.stderr)
             try:
@@ -335,6 +354,48 @@ def _build_non_code_indexes(report) -> tuple[str, str, str]:
         _render("Data Overview", data),
         _render("Media Manifest", media),
     )
+
+
+def _compute_affected_modules(
+    report,
+    module_ids: list[str],
+) -> set[str] | None:
+    """Determine which modules were touched by changed files in a quick scan.
+
+    Returns ``None`` if the impact cannot be determined (e.g. no file
+    metadata), in which case the caller should run all modules.
+
+    Args:
+        report: ScanReport from quick_scan.
+        module_ids: List of known module identifiers.
+
+    Returns:
+        Set of affected module identifiers, or None.
+    """
+    metadata = getattr(report, "file_metadata", None)
+    samples = getattr(report, "scanned_file_samples", None)
+    changed_paths = list(metadata.keys()) if metadata else (samples or [])
+    if not changed_paths:
+        return None
+
+    affected: set[str] = set()
+    for rel_path in changed_paths:
+        parts = rel_path.replace("\\", "/").split("/")
+        if not parts:
+            continue
+        # Match against module IDs — check both simple ("cli") and
+        # two-level ("engine_hub") patterns.
+        top = parts[0]
+        for mid in module_ids:
+            if mid == top:
+                affected.add(mid)
+            elif mid.startswith(f"{top}_") and len(parts) > 1:
+                # Two-level: "engine_hub" matches "engine/antigravity_engine/hub/..."
+                # Heuristic: if any path component matches the suffix, it's affected.
+                suffix = mid.split("_", 1)[1]
+                if suffix in parts:
+                    affected.add(mid)
+    return affected
 
 
 def _build_scan_payload(report) -> dict[str, object]:

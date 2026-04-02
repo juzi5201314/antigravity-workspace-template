@@ -25,7 +25,11 @@ def test_build_ask_swarm_import_error():
 
 
 def test_detect_areas_finds_source_dirs(tmp_path: Path) -> None:
-    """_detect_areas finds directories containing source files."""
+    """_detect_areas finds directories containing real source code files.
+
+    Directories with only documentation (.md) are now excluded since they
+    don't benefit from having a dedicated ModuleAgent.
+    """
     from antigravity_engine.hub.agents import _detect_areas
 
     (tmp_path / "engine").mkdir()
@@ -38,7 +42,8 @@ def test_detect_areas_finds_source_dirs(tmp_path: Path) -> None:
     areas = _detect_areas(tmp_path)
     assert "engine" in areas
     assert "cli" in areas
-    assert "docs" in areas
+    # docs-only directories are no longer treated as code modules
+    assert "docs" not in areas
 
 
 def test_detect_areas_skips_hidden_and_skip_dirs(tmp_path: Path) -> None:

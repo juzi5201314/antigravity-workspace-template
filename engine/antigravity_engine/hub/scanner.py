@@ -219,7 +219,12 @@ def _update_scan_stats(
 
 
 def _finalize_scan_report(report: ScanReport, root: Path, venv_dirs: set[str]) -> None:
-    """Fill derived report fields after the file scan loop."""
+    """Fill derived report fields after the file scan loop.
+
+    ``has_tests`` and ``has_pytest`` are now detected during the main
+    ``os.walk`` pass in :func:`full_scan`, so this function no longer
+    needs to do additional ``rglob`` traversals.
+    """
     report.languages = dict(
         sorted(report.languages.items(), key=lambda item: item[1], reverse=True)
     )
@@ -234,22 +239,13 @@ def _finalize_scan_report(report: ScanReport, root: Path, venv_dirs: set[str]) -
         and not d.name.endswith(".egg-info")
     )
 
-    test_dir_names = {"tests", "test", "spec", "specs", "__tests__"}
-    report.has_tests = any(
-        d.is_dir() and d.name in test_dir_names
-        for d in root.rglob("*")
-        if d.is_dir() and not _should_skip(d.relative_to(root), venv_dirs)
-    )
-    report.has_pytest = any(
-        (root / f).exists() for f in ("pytest.ini", "conftest.py")
-    ) or any(
-        d.is_file()
-        and d.name in {"conftest.py", "pytest.ini"}
-        for d in root.rglob("*")
-        if d.is_file()
-        and not _should_skip(d.relative_to(root), venv_dirs)
-        and d.name in {"conftest.py", "pytest.ini"}
-    )
+    # has_tests / has_pytest are set by the main scan loop — only apply
+    # lightweight root-level fallback checks here for quick_scan paths
+    # that may not walk deeply enough.
+    if not report.has_pytest:
+        report.has_pytest = any(
+            (root / f).exists() for f in ("pytest.ini", "conftest.py")
+        )
     report.has_ci = (root / ".github" / "workflows").exists() or (root / ".gitlab-ci.yml").exists()
     report.has_docker = (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists()
 
@@ -466,6 +462,10 @@ def _extract_git_summary(root: Path) -> str:
 def full_scan(root: Path) -> ScanReport:
     """Perform a full project scan.
 
+    Uses a single ``os.walk`` pass with directory pruning instead of
+    multiple ``Path.rglob("*")`` calls, avoiding redundant traversals
+    of skipped directories (venvs, node_modules, etc.).
+
     Args:
         root: Project root directory.
 
@@ -496,26 +496,53 @@ def full_scan(root: Path) -> ScanReport:
     )
     started = time.monotonic()
 
-    for item in root.rglob("*"):
-        if not item.is_file():
-            continue
-        try:
-            rel = item.relative_to(root)
-        except ValueError:
-            continue
-        if _should_skip(rel, venv_dirs):
-            continue
+    skip_names = SKIP_DIRS | venv_dirs
+    test_dir_names = {"tests", "test", "spec", "specs", "__tests__"}
+    pytest_file_names = {"conftest.py", "pytest.ini"}
+    hit_limit = False
 
-        if report.walked_file_count >= max_files:
-            report.timed_out = True
-            report.scan_stopped_reason = "max_files_reached"
-            break
-        if scan_timeout > 0 and (time.monotonic() - started) >= scan_timeout:
-            report.timed_out = True
-            report.scan_stopped_reason = "timeout"
-            break
+    for dirpath_str, dirnames, filenames in os.walk(root):
+        # Prune skipped directories in-place so os.walk never descends
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in skip_names
+            and not d.startswith(".")
+            and not d.endswith(".egg-info")
+        ]
 
-        _update_scan_stats(report, rel, item, sample_limit)
+        dirpath = Path(dirpath_str)
+
+        # Detect test directories and pytest markers during the walk
+        dir_name = dirpath.name
+        if dir_name in test_dir_names:
+            report.has_tests = True
+        for fname in filenames:
+            if fname in pytest_file_names:
+                report.has_pytest = True
+                break
+
+        for fname in filenames:
+            item = dirpath / fname
+            try:
+                rel = item.relative_to(root)
+            except ValueError:
+                continue
+
+            if report.walked_file_count >= max_files:
+                report.timed_out = True
+                report.scan_stopped_reason = "max_files_reached"
+                hit_limit = True
+                break
+            if scan_timeout > 0 and (time.monotonic() - started) >= scan_timeout:
+                report.timed_out = True
+                report.scan_stopped_reason = "timeout"
+                hit_limit = True
+                break
+
+            _update_scan_stats(report, rel, item, sample_limit)
+
+        if hit_limit:
+            break
 
     report.scan_elapsed_seconds = time.monotonic() - started
     if not report.scan_stopped_reason:
@@ -525,21 +552,56 @@ def full_scan(root: Path) -> ScanReport:
     return report
 
 
+_MODULE_SKIP_DIRS: frozenset[str] = frozenset({
+    ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+    ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
+    ".next", ".nuxt", "target", "vendor", ".antigravity", ".context",
+    "artifacts", ".github", ".agent", ".agents",
+})
+
+# Extensions that count as real source code (not just .md/.json/.yml)
+_CODE_EXTS: frozenset[str] = frozenset({
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt",
+    ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".dart",
+    ".lua", ".sh", ".scala", ".zig", ".ex", ".exs", ".clj", ".hs",
+})
+
+
+def _dir_has_code(directory: Path, venv_dirs: set[str]) -> bool:
+    """Check whether *directory* contains at least one source-code file."""
+    skip = _MODULE_SKIP_DIRS | venv_dirs
+    for dirpath_str, dirnames, filenames in os.walk(directory):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in skip and not d.startswith(".") and not d.endswith(".egg-info")
+        ]
+        for fname in filenames:
+            if Path(fname).suffix.lower() in _CODE_EXTS:
+                return True
+    return False
+
+
 def detect_modules(root: Path) -> list[str]:
-    """Detect top-level code modules in a project.
+    """Detect code modules with two-level resolution.
+
+    Top-level directories are scanned first.  When a top-level directory
+    is a Python package (contains a sub-package with ``__init__.py``)
+    *and* that sub-package contains three or more child packages, the
+    children are promoted to individual modules so the agent swarm can
+    specialise at a finer granularity.
+
+    Only directories that contain actual source code (not just docs or
+    data) are treated as modules.
 
     Args:
         root: Project root directory.
 
     Returns:
-        List of module names (e.g. ["engine", "cli", "docs"]).
+        List of module identifiers.  Two-level modules use underscore
+        separators (e.g. ``"engine_hub"``) so they remain safe for
+        agent names and filesystem paths.
     """
-    skip = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
-        ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs",
-        ".next", ".nuxt", "target", "vendor", ".antigravity", ".context",
-        "artifacts", ".github", ".agent", ".agents",
-    }
+    skip = _MODULE_SKIP_DIRS.copy()
     venv_dirs = _find_venv_dirs(root)
     skip = skip | venv_dirs
 
@@ -552,18 +614,104 @@ def detect_modules(root: Path) -> list[str]:
                 continue
             if item.name.endswith(".egg-info"):
                 continue
-            has_source = any(
-                f.is_file() and f.suffix.lower() in LANG_MAP
-                for f in item.rglob("*")
-                if f.is_file()
-                and not _should_skip(f.relative_to(root), venv_dirs)
-            )
-            if has_source:
-                modules.append(item.name)
+            if not _dir_has_code(item, venv_dirs):
+                continue
+
+            # Try two-level: look for a single inner Python package
+            # (directory with __init__.py) that itself has >=3 sub-packages.
+            inner_pkg = _find_inner_package(item, skip)
+            if inner_pkg is not None:
+                sub_modules = _detect_sub_modules(inner_pkg, item.name, venv_dirs, skip)
+                if len(sub_modules) >= 3:
+                    modules.extend(sub_modules)
+                    continue
+
+            # Fallback: treat entire top-level dir as one module
+            modules.append(item.name)
     except OSError:
         pass
 
     return modules
+
+
+def _find_inner_package(top_dir: Path, skip: set[str]) -> Path | None:
+    """Find the primary inner Python package inside *top_dir*.
+
+    Looks for a single child directory containing ``__init__.py``.
+    Returns ``None`` if there are zero or multiple candidates.
+    """
+    candidates: list[Path] = []
+    try:
+        for child in top_dir.iterdir():
+            if not child.is_dir():
+                continue
+            if child.name.startswith(".") or child.name in skip:
+                continue
+            if (child / "__init__.py").is_file():
+                candidates.append(child)
+    except OSError:
+        return None
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _detect_sub_modules(
+    inner_pkg: Path,
+    parent_name: str,
+    venv_dirs: set[str],
+    skip: set[str],
+) -> list[str]:
+    """Detect sub-modules inside *inner_pkg* that contain code.
+
+    Returns module ids as ``"{parent}_{child}"`` (slash-free).
+    """
+    sub_modules: list[str] = []
+    try:
+        for child in sorted(inner_pkg.iterdir()):
+            if not child.is_dir():
+                continue
+            if child.name.startswith(".") or child.name.startswith("_"):
+                continue
+            if child.name in skip:
+                continue
+            if _dir_has_code(child, venv_dirs):
+                sub_modules.append(f"{parent_name}_{child.name}")
+    except OSError:
+        pass
+    return sub_modules
+
+
+def resolve_module_path(root: Path, module_id: str) -> Path:
+    """Resolve a module identifier to its filesystem directory.
+
+    For simple modules the path is ``root / module_id``.  For two-level
+    modules (``"parent_child"``) the path is resolved by scanning for
+    the inner package structure.
+
+    Args:
+        root: Project root directory.
+        module_id: Module identifier returned by :func:`detect_modules`.
+
+    Returns:
+        Absolute path to the module directory.
+    """
+    # Simple case: top-level directory exists directly
+    direct = root / module_id
+    if direct.is_dir():
+        return direct
+
+    # Two-level case: "parent_child" → root/parent/<inner_pkg>/child
+    if "_" in module_id:
+        parts = module_id.split("_", 1)
+        parent_dir = root / parts[0]
+        if parent_dir.is_dir():
+            inner = _find_inner_package(parent_dir, _MODULE_SKIP_DIRS)
+            if inner is not None:
+                child_dir = inner / parts[1]
+                if child_dir.is_dir():
+                    return child_dir
+
+    # Fallback
+    return direct
 
 
 def extract_git_insights(root: Path) -> str:

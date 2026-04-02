@@ -34,27 +34,34 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     set_tracing_disabled(True)
 
-    from antigravity_engine.config import Settings
+    from antigravity_engine.config import get_settings
     from antigravity_engine.hub.agents import build_reviewer_agent, create_model
 
-    settings = Settings()
+    settings = get_settings()
     model = create_model(settings)
 
     print("[1/3] Gathering project context...", file=sys.stderr)
 
-    retrieval_first = os.environ.get("AG_ASK_RETRIEVAL_FIRST", "1").strip().lower() in {"1", "true", "yes"}
-    if retrieval_first:
-        retrieval_answer = _build_retrieval_semantic_answer(workspace, question)
-        if retrieval_answer:
+    # Retrieval-assisted: gather code evidence and feed it to the LLM
+    # as additional context rather than returning it directly.  Set
+    # AG_ASK_RETRIEVAL_FIRST=2 to restore the old "return immediately" mode.
+    retrieval_mode = os.environ.get("AG_ASK_RETRIEVAL_FIRST", "1").strip().lower()
+    retrieval_evidence: str | None = None
+    if retrieval_mode in {"1", "true", "yes", "2"}:
+        retrieval_evidence = _build_retrieval_semantic_answer(workspace, question)
+        if retrieval_evidence and retrieval_mode == "2":
+            # Legacy mode: return retrieval result directly without LLM.
             print("[2/3] Retrieval-first answer hit; skipping LLM.", file=sys.stderr)
-            return retrieval_answer
+            return retrieval_evidence
 
-    context = _build_ask_context(workspace)
+    context = _build_ask_context(workspace, question)
     graph_skill_context = None
     if _is_structure_query(question):
         graph_skill_context = _build_graph_skill_context(workspace, question)
 
     prompt_parts = [f"Project context:\n{context}"]
+    if retrieval_evidence:
+        prompt_parts.append(f"Code evidence (from retrieval):\n{retrieval_evidence}")
     if graph_skill_context:
         prompt_parts.append(graph_skill_context)
     prompt_parts.append(f"Question: {question}")
@@ -133,16 +140,46 @@ def _read_context_file(path: Path, label: str) -> str | None:
     return f"--- {label} ---\n{content}"
 
 
-def _build_ask_context(workspace: Path) -> str:
-    """Collect project context for Q&A with graph-first priority."""
+def _build_ask_context(workspace: Path, question: str = "") -> str:
+    """Collect project context for Q&A with structure-first priority.
+
+    The ordering has been adjusted so that the most universally useful
+    sources (structure map, conventions, knowledge graph) come first,
+    while niche indexes (media, data) are loaded only when budget
+    remains.  When a *question* is provided, a lightweight keyword
+    filter boosts sources whose labels overlap with the query.
+
+    Args:
+        workspace: Project root directory.
+        question: Optional user question for relevance filtering.
+
+    Returns:
+        Concatenated context string.
+    """
     context_parts: list[str] = []
     max_chars = int(os.environ.get("AG_ASK_CONTEXT_MAX_CHARS", "30000"))
 
+    # Sources ordered by general usefulness (structure > conventions > graph > docs > data > media)
     prioritized_sources = [
+        (
+            workspace / ".antigravity" / "structure.md",
+            ".antigravity/structure.md",
+        ),
+        (
+            workspace / ".antigravity" / "conventions.md",
+            ".antigravity/conventions.md",
+        ),
         (
             workspace / ".antigravity" / "knowledge_graph.md",
             ".antigravity/knowledge_graph.md",
         ),
+        (workspace / ".antigravity" / "rules.md", ".antigravity/rules.md"),
+        (
+            workspace / ".antigravity" / "decisions" / "log.md",
+            ".antigravity/decisions/log.md",
+        ),
+        (workspace / "CONTEXT.md", "CONTEXT.md"),
+        (workspace / "AGENTS.md", "AGENTS.md"),
         (
             workspace / ".antigravity" / "document_index.md",
             ".antigravity/document_index.md",
@@ -155,22 +192,36 @@ def _build_ask_context(workspace: Path) -> str:
             workspace / ".antigravity" / "media_manifest.md",
             ".antigravity/media_manifest.md",
         ),
-        (
-            workspace / ".antigravity" / "structure.md",
-            ".antigravity/structure.md",
-        ),
-        (
-            workspace / ".antigravity" / "conventions.md",
-            ".antigravity/conventions.md",
-        ),
-        (workspace / ".antigravity" / "rules.md", ".antigravity/rules.md"),
-        (
-            workspace / ".antigravity" / "decisions" / "log.md",
-            ".antigravity/decisions/log.md",
-        ),
-        (workspace / "CONTEXT.md", "CONTEXT.md"),
-        (workspace / "AGENTS.md", "AGENTS.md"),
     ]
+
+    # Lightweight keyword relevance: if the question mentions "media", "data",
+    # "document", etc., boost matching sources to the front.
+    if question:
+        q_lower = question.lower()
+        boost_keywords = {
+            "media": "media_manifest",
+            "image": "media_manifest",
+            "video": "media_manifest",
+            "data": "data_overview",
+            "csv": "data_overview",
+            "json": "data_overview",
+            "document": "document_index",
+            "doc": "document_index",
+            "readme": "document_index",
+        }
+        boosted: set[str] = set()
+        for kw, label_fragment in boost_keywords.items():
+            if kw in q_lower:
+                boosted.add(label_fragment)
+        if boosted:
+            top: list[tuple[Path, str]] = []
+            rest: list[tuple[Path, str]] = []
+            for entry in prioritized_sources:
+                if any(b in entry[1] for b in boosted):
+                    top.append(entry)
+                else:
+                    rest.append(entry)
+            prioritized_sources = top + rest
 
     for path, label in prioritized_sources:
         rendered = _read_context_file(path, label)
