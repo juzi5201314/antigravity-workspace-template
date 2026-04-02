@@ -259,6 +259,14 @@ hand off to the relevant ModuleAgent or Router.
 Be precise — cite commit hashes, dates, authors, and file paths.
 """
 
+_MCP_TOOLS_ADDENDUM = """
+**External MCP tools:**
+{mcp_tool_list}
+
+Use these for external knowledge-graph queries, database access,
+or any capability not covered by the built-in tools above.
+"""
+
 # -- Refresh Module Agents --------------------------------------------------
 
 _REFRESH_MODULE_INSTRUCTIONS_TEMPLATE = """\
@@ -507,7 +515,11 @@ def build_refresh_git_agent(model: str, workspace: Path):
 # ---------------------------------------------------------------------------
 
 
-def build_ask_swarm(model: str, workspace: Optional[Path] = None):
+def build_ask_swarm(
+    model: str,
+    workspace: Optional[Path] = None,
+    mcp_tools: Optional[dict] = None,
+):
     """Build the Ask Swarm using a dynamic module-based Router-Worker pattern.
 
     Each detected module gets a ModuleAgent pre-loaded with its knowledge
@@ -577,6 +589,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
             instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
                 module=mod,
                 knowledge=knowledge,
+                mcp_tools_section=mcp_tools_section,
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
@@ -597,7 +610,7 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         name="GitAgent",
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
-        tools=_wrap_tools(git_all_tools),
+        tools=_wrap_tools(git_all_tools) + wrapped_mcp,
     )
     workers.append(git_agent)
 
@@ -609,9 +622,10 @@ def build_ask_swarm(model: str, workspace: Optional[Path] = None):
         instructions=_MODULE_AGENT_INSTRUCTIONS_TEMPLATE.format(
             module="entire project",
             knowledge=_read_structure_map(workspace),
+            mcp_tools_section=mcp_tools_section,
         ),
         model=model,
-        tools=_wrap_tools(full_tools),
+        tools=_wrap_tools(full_tools) + wrapped_mcp,
     )
     workers.append(full_worker)
 
