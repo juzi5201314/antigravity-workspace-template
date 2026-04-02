@@ -84,6 +84,7 @@ def test_refresh_filesystem_reports_generated_artifacts(
     import antigravity_engine.hub.pipeline as pipeline_mod
 
     monkeypatch.setattr(pipeline_mod, "refresh_pipeline", fake_refresh_pipeline)
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
 
     result = module.refresh_filesystem(workspace=str(tmp_path), quick=True)
 
@@ -104,7 +105,27 @@ def test_ask_filesystem_delegates_to_pipeline(tmp_path: Path, monkeypatch) -> No
     import antigravity_engine.hub.pipeline as pipeline_mod
 
     monkeypatch.setattr(pipeline_mod, "ask_pipeline", fake_ask_pipeline)
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
 
     result = module.ask_filesystem("What changed?", workspace=str(tmp_path))
 
     assert result == "graph-aware answer"
+
+
+def test_knowledge_layer_rejects_workspace_outside_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """knowledge-layer tools should reject workspace paths outside root."""
+    module = _load_skill_tools_module("knowledge-layer")
+    outside = tmp_path.parent / "outside"
+    outside.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
+
+    try:
+        module.refresh_filesystem(workspace=str(outside))
+    except ValueError as exc:
+        assert "workspace must be inside" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for out-of-workspace path.")

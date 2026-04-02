@@ -9,15 +9,36 @@ import asyncio
 import os
 from pathlib import Path
 
+from antigravity_engine.hub._utils import is_safe_path
 
-def _resolve_workspace(workspace: str | None = None) -> Path:
-    """Resolve workspace path from explicit arg, env var, or cwd."""
-    if workspace:
-        return Path(workspace).resolve()
+
+def _workspace_root() -> Path:
+    """Resolve the trusted workspace root from env var or current directory."""
     env = os.environ.get("WORKSPACE_PATH", "").strip()
     if env:
         return Path(env).resolve()
-    return Path.cwd()
+    return Path.cwd().resolve()
+
+
+def _resolve_workspace(workspace: str | None = None) -> Path:
+    """Resolve and validate workspace path from explicit arg, env var, or cwd.
+
+    Args:
+        workspace: Optional workspace path override.
+
+    Returns:
+        A canonical workspace path constrained to the trusted workspace root.
+
+    Raises:
+        ValueError: If the provided workspace escapes the trusted workspace root.
+    """
+    root = _workspace_root()
+    candidate = Path(workspace).resolve() if workspace else root
+    if not is_safe_path(root, candidate):
+        raise ValueError(
+            "workspace must be inside the current project workspace"
+        )
+    return candidate
 
 
 def refresh_filesystem(workspace: str = ".", quick: bool = False) -> str:
