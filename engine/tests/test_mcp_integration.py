@@ -81,7 +81,7 @@ def test_build_ask_swarm_mcp_in_instructions(tmp_path: Path) -> None:
 
     worker = module_workers[0]
     assert "mcp_db_query" in worker.instructions
-    assert "External MCP tools" in worker.instructions
+    assert "MCP (Model Context Protocol) tools" in worker.instructions
 
 
 def test_build_ask_swarm_empty_mcp_tools(tmp_path: Path) -> None:

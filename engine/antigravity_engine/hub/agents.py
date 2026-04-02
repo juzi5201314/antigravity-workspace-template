@@ -260,7 +260,7 @@ Be precise — cite commit hashes, dates, authors, and file paths.
 """
 
 _MCP_TOOLS_ADDENDUM = """
-**External MCP tools:**
+**MCP (Model Context Protocol) tools:**
 {mcp_tool_list}
 
 Use these for external knowledge-graph queries, database access,
