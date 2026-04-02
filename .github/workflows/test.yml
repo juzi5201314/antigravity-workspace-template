@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  engine-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,14 +18,22 @@ jobs:
       with:
         python-version: "3.12"
 
-    - name: Install dependencies
+    - name: Install engine dependencies
       run: |
         python -m pip install --upgrade pip
-        cd engine && pip install ".[dev]"
+        pip install "./engine[dev]"
 
-    - name: Run Tests
+    - name: Run engine tests
       run: |
-        cd engine && pytest tests/
+        pytest engine/tests/
+
+    - name: Verify engine entrypoints
+      run: |
+        ag-ask --help
+        ag-refresh --help
+        ag-mcp --help
+        python -m antigravity_engine --help
+        python -m antigravity_engine.hub --help
 
   docker-check:
     runs-on: ubuntu-latest
@@ -53,10 +61,16 @@ jobs:
       with:
         python-version: "3.12"
 
-    - name: Install CLI
+    - name: Install CLI and engine
       run: |
         python -m pip install --upgrade pip
-        cd cli && pip install .
+        pip install "./engine[dev]" ./cli
 
-    - name: Verify CLI
-      run: ag version
+    - name: Run CLI tests
+      run: pytest cli/tests/
+
+    - name: Verify CLI commands
+      run: |
+        ag --help
+        ag ask --help
+        ag refresh --help

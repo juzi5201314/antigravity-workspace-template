@@ -22,7 +22,7 @@ def analyze_sentiment(text: str) -> dict:
         return {"score": 0.8, "label": "positive"}
     return {"score": 0.3, "label": "neutral"}
 ```
-重启一次 Agent 后即可在对话里直接使用 `analyze_sentiment()`。
+运行一次 `ag refresh --workspace .` 后即可在对话里直接使用 `analyze_sentiment()`。
 
 ### 编写建议
 - 必写 docstring，说明参数/返回值/边界。  
@@ -85,7 +85,7 @@ def analyze_sentiment(text: str) -> dict:
 ```bash
 ls -la antigravity_engine/tools/
 python -m py_compile antigravity_engine/tools/my_tool.py
-ag-engine  # 重启
+ag refresh --workspace .  # 重新刷新知识库
 ```
 
 **上下文未注入？**
@@ -93,7 +93,7 @@ ag-engine  # 重启
 ls -la .context/
 cat .context/your_file.md
 du -sh .context/
-ag-engine  # 重启
+ag refresh --workspace .  # 重新刷新知识库
 ```
 
 ## 🚀 进阶

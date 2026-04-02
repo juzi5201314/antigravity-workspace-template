@@ -27,9 +27,9 @@ def analyze_sentiment(text: str) -> dict:
     return {"score": 0.3, "label": "neutral"}
 ```
 
-2. **Reinicia Agente** (una sola vez):
+2. **Refresca el Knowledge Hub** (una sola vez):
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
 3. **Úsala Inmediatamente** en prompts:
@@ -80,9 +80,9 @@ GET /api/users - obtener todos los usuarios
 POST /api/users - crear nuevo usuario" > .context/api_docs.md
 ```
 
-2. **Reinicia Agente** (una sola vez):
+2. **Refresca el Knowledge Hub** (una sola vez):
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
 3. **Inyección Automática**:

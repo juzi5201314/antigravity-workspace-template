@@ -12,8 +12,12 @@ El m처dulo sandbox proporciona entornos seguros y configurables para ejecutar c�
 
 Sin configuraci처n adicional. El c처digo se ejecuta en un subprocess aislado:
 
-```bash
-ag-engine "Genera y ejecuta c처digo Python para calcular 2 + 2"
+```python
+from antigravity_engine.sandbox.factory import get_sandbox
+
+sandbox = get_sandbox()
+result = sandbox.execute(code="print(2 + 2)", language="python", timeout=30)
+print(result.stdout)
 ```
 
 El agente:
@@ -32,8 +36,8 @@ export DOCKER_IMAGE=antigravity-sandbox:latest
 # Primero, construye la imagen (opcional; usa python:3.11-slim por defecto)
 docker build -f Dockerfile.sandbox -t antigravity-sandbox:latest .
 
-# Luego ejecuta el agente
-ag-engine "Tu tarea de generaci처n de c처digo"
+# Luego usa la misma API de Python mostrada arriba
+# para ejecutar c처digo dentro del runtime Microsandbox
 ```
 
 ## Configuraci처n

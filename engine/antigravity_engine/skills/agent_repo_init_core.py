@@ -354,9 +354,9 @@ def initialize_agent_repo(
         f"cd {target_path}",
         "python3 -m venv venv",
         "source venv/bin/activate",
-        "pip install -e .",
+        "pip install -e ./cli -e './engine[dev]'",
         "cp .env.example .env  # if .env not already created",
-        "ag-engine",
+        "ag-refresh --workspace .",
     ]
 
     if options.mode == InitMode.FULL:

@@ -12,25 +12,24 @@
 
 ### 1. 安装依赖
 ```bash
-pip install -e .
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ./cli -e './engine[dev]'
 ```
 
-### 2. 运行 Agent
+### 2. 构建知识库
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
-该命令每次执行一个任务，并会自动：
-- 🧠 从 `memory/agent_memory.md` 加载记忆
-- 🛠️ 发现 `antigravity_engine/tools/` 里的工具
-- 📚 注入 `.context/` 的知识
+该命令会扫描项目、更新 `.antigravity/`，并为后续问答准备知识层。
 
-### 3. 使用示例
+### 3. 提问项目问题
 ```bash
-ag-engine "帮我写一个计算斐波那契数列的 Python 函数"
+ag ask "这个项目的认证逻辑是怎么实现的？" --workspace .
 ```
 
-Agent 会执行该任务并将结果输出到终端。
+问答流水线会读取结构图，将问题路由到合适的模块 Agent，并返回带文件证据的答案。
 
 ## 🐳 Docker 部署
 
@@ -39,10 +38,7 @@ Agent 会执行该任务并将结果输出到终端。
 docker-compose up --build
 ```
 
-这会：
-- 安装依赖
-- 在容器中启动 Agent
-- 挂载你的工作区便于实时编辑
+这会构建正式运行镜像，并针对挂载工作区启动知识库 MCP 服务。
 
 可按需修改 `docker-compose.yml`（环境变量、挂载卷、端口等）。
 
@@ -76,7 +72,7 @@ ARTIFACTS_DIR=artifacts
 
 ```bash
 rm -f memory/agent_memory.md memory/agent_summary.md
-ag-engine
+ag refresh --workspace .
 ```
 
 ## 📁 项目结构参考
@@ -99,13 +95,13 @@ ag-engine
 
 ```bash
 # 全量
-pytest
+pytest engine/tests cli/tests
 
-# 指定文件
-pytest tests/test_agent.py -v
+# 指定 engine 测试文件
+pytest engine/tests/test_hub_pipeline.py -v
 
 # 覆盖率
-pytest --cov=antigravity_engine tests/
+pytest --cov=antigravity_engine engine/tests/
 ```
 
 ## 🐛 常见问题
