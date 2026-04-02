@@ -12,25 +12,26 @@ Get up and running with the Antigravity Workspace Template in minutes.
 
 ### 1. Install Dependencies
 ```bash
-pip install -e .
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ./cli -e './engine[dev]'
 ```
 
-### 2. Run the Agent
+### 2. Build the Knowledge Base
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
-The agent runs a single task per invocation. It automatically:
-- 🧠 Loads memory from `memory/agent_memory.md`
-- 🛠️ Discovers tools in `antigravity_engine/tools/`
-- 📚 Ingests context from `.context/`
+This command scans the project, updates `.antigravity/`, and prepares the
+knowledge hub for routed project Q&A.
 
-### 3. Example Usage
+### 3. Ask Project Questions
 ```bash
-ag-engine "Build a Python function to calculate Fibonacci numbers"
+ag ask "How does authentication work in this project?" --workspace .
 ```
 
-The agent will execute that task and print the result to stdout.
+The ask pipeline reads the generated structure map, routes to the right module
+agent, and returns grounded answers with file evidence.
 
 ## 🐳 Docker Deployment
 
@@ -39,12 +40,8 @@ The agent will execute that task and print the result to stdout.
 docker-compose up --build
 ```
 
-This will:
-- Install all dependencies
-- Start the agent in a containerized environment
-- Mount your workspace for live code editing
-
-Access the agent via the exposed interface.
+This builds the published runtime image and starts the knowledge-hub MCP server
+against the mounted workspace.
 
 ### Customizing Docker
 Edit `docker-compose.yml` to:
@@ -82,7 +79,7 @@ To reset:
 
 ```bash
 rm -f memory/agent_memory.md memory/agent_summary.md
-ag-engine
+ag refresh --workspace .
 ```
 
 ## 📁 Project Structure Reference
@@ -105,13 +102,13 @@ See [Project Structure](../README.md#project-structure) for details.
 
 ```bash
 # Run all tests
-pytest
+pytest engine/tests cli/tests
 
-# Run specific test
-pytest tests/test_agent.py -v
+# Run a specific engine test
+pytest engine/tests/test_hub_pipeline.py -v
 
 # With coverage
-pytest --cov=antigravity_engine tests/
+pytest --cov=antigravity_engine engine/tests/
 ```
 
 ## 🐛 Troubleshooting

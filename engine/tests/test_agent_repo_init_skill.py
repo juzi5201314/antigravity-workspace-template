@@ -56,6 +56,9 @@ def test_init_agent_repo_creates_clean_project(tmp_path: Path) -> None:
     # Runtime/cache data should not be copied from the template source.
     assert not (target_path / ".git").exists()
     assert not (target_path / "agent_memory.json").exists()
+    assert "pip install -e ./cli -e './engine[dev]'" in result["next_steps"]
+    assert "ag-refresh --workspace ." in result["next_steps"]
+    assert "ag-engine" not in result["next_steps"]
 
 
 def test_init_agent_repo_full_mode_writes_profile(tmp_path: Path) -> None:
@@ -171,3 +174,6 @@ def test_portable_script_runs_with_template_override(tmp_path: Path) -> None:
     assert project_path.exists()
     assert (project_path / "mission.md").exists()
     assert (project_path / ".context" / "agent_runtime_profile.md").exists()
+    assert "pip install -e ./cli -e './engine[dev]'" in payload["next_steps"]
+    assert "ag-refresh --workspace ." in payload["next_steps"]
+    assert "ag-engine" not in payload["next_steps"]

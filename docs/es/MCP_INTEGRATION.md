@@ -35,12 +35,12 @@ MCP_ENABLED=true
 }
 ```
 
-### 3. Ejecutar el Agente
+### 3. Consultar el Knowledge Hub
 ```bash
-ag-engine
+ag-ask "What MCP tools are available?" --workspace .
 ```
 
-El agente:
+El pipeline de preguntas:
 - 🔌 Se conectará a todos los servidores MCP habilitados
 - 🔍 Descubrirá herramientas disponibles
 - 📦 Las fusionará con herramientas locales

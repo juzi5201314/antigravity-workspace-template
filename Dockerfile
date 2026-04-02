@@ -21,5 +21,5 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Run the agent
-CMD ["ag-engine"]
+# Run the knowledge-hub MCP server against the mounted workspace
+CMD ["ag-mcp", "--workspace", "/app"]

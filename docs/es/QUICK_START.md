@@ -12,25 +12,26 @@ Comienza a usar la Plantilla Workspace de Antigravity en minutos.
 
 ### 1. Instalar Dependencias
 ```bash
-pip install -e .
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ./cli -e './engine[dev]'
 ```
 
-### 2. Ejecutar el Agente
+### 2. Construir la Base de Conocimiento
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
-El agente ejecuta una tarea por invocación. Automáticamente:
-- 🧠 Carga la memoria desde `memory/agent_memory.md`
-- 🛠️ Descubre herramientas en `antigravity_engine/tools/`
-- 📚 Ingiere contexto desde `.context/`
+Este comando escanea el proyecto, actualiza `.antigravity/` y prepara el
+knowledge hub para preguntas enrutadas sobre el codebase.
 
-### 3. Ejemplo de Uso
+### 3. Hacer Preguntas sobre el Proyecto
 ```bash
-ag-engine "Construye una función Python para calcular números Fibonacci"
+ag ask "¿Cómo funciona la autenticación en este proyecto?" --workspace .
 ```
 
-El agente ejecutará esa tarea e imprimirá el resultado en stdout.
+El pipeline de preguntas lee el mapa estructural, enruta al agente de módulo
+correcto y devuelve respuestas fundamentadas con evidencia de archivos.
 
 ## 🐳 Despliegue con Docker
 
@@ -39,12 +40,8 @@ El agente ejecutará esa tarea e imprimirá el resultado en stdout.
 docker-compose up --build
 ```
 
-Esto:
-- Instala todas las dependencias
-- Inicia el agente en un entorno containerizado
-- Monta tu workspace para edición de código en vivo
-
-Accede al agente mediante la interfaz expuesta.
+Esto construye la imagen de runtime publicada e inicia el servidor MCP del
+knowledge hub sobre el workspace montado.
 
 ### Personalizar Docker
 Edita `docker-compose.yml` para:
@@ -82,7 +79,7 @@ Para reiniciar:
 
 ```bash
 rm -f memory/agent_memory.md memory/agent_summary.md
-ag-engine
+ag refresh --workspace .
 ```
 
 ## 📁 Referencia de Estructura del Proyecto
@@ -105,13 +102,13 @@ Consulta [Estructura del Proyecto](../README.md#project-structure) para detalles
 
 ```bash
 # Ejecutar todas las pruebas
-pytest
+pytest engine/tests cli/tests
 
-# Ejecutar prueba específica
-pytest tests/test_agent.py -v
+# Ejecutar una prueba específica del engine
+pytest engine/tests/test_hub_pipeline.py -v
 
 # Con cobertura
-pytest --cov=antigravity_engine tests/
+pytest --cov=antigravity_engine engine/tests/
 ```
 
 ## 🐛 Solución de Problemas

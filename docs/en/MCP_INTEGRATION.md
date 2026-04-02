@@ -42,12 +42,12 @@ MCP_ENABLED=true
 }
 ```
 
-### 3. Run the Agent
+### 3. Query the Knowledge Hub
 ```bash
-ag-engine
+ag-ask "What MCP tools are available?" --workspace .
 ```
 
-The agent will:
+The ask pipeline will:
 - 🔌 Connect to all enabled MCP servers
 - 🔍 Discover available tools
 - 📦 Merge them with local tools
@@ -141,7 +141,7 @@ if __name__ == "__main__":
 }
 ```
 
-3. Restart the agent—your new tools are available!
+3. Re-run `ag-ask`—your new tools are available.
 
 ## 🔐 Security Considerations
 
@@ -196,8 +196,8 @@ which npx
 
 ### Tools not appearing
 ```bash
-# Restart agent
-ag-engine
+# Re-run the ask pipeline
+ag-ask "What MCP tools are available?" --workspace .
 
 # Verify server command exists
 which npx

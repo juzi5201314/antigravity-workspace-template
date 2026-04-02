@@ -37,23 +37,25 @@ rules in `.cursorrules`, `.antigravity/rules.md`, and `CONTEXT.md`.
 
 ## Build / Lint / Test Commands
 ### Setup
-- `python -m venv venv && source venv/bin/activate`
-- `pip install -e ".[dev]"`
+- `python3 -m venv venv && source venv/bin/activate`
+- `pip install -e ./cli -e './engine[dev]'`
 
-### Run Agent
-- `ag-engine "Your task here"`
+### Run Knowledge Hub
+- `ag refresh --workspace .`
+- `ag ask "How does this project work?" --workspace .`
+- Engine-only entrypoints: `ag-refresh`, `ag-ask`, `ag-mcp`
 
 ### Docker
-- `docker-compose up --build`
+- `docker compose up --build`
 
 ### Tests
-- Run all tests: `pytest`
-- Run test folder: `pytest tests/`
-- Run a single test file: `pytest tests/test_agent.py -v`
-- Run a single test case: `pytest tests/test_agent.py::test_agent_initialization -v`
-- Run a single test method: `pytest tests/test_agent.py::TestClass::test_method -v`
-- Coverage: `pytest --cov=antigravity_engine tests/`
-- Sandbox tests: `pytest tests/test_local_sandbox.py tests/test_docker_sandbox.py tests/test_factory.py -v`
+- Run all tests: `pytest engine/tests cli/tests`
+- Run engine tests: `pytest engine/tests/`
+- Run CLI tests: `pytest cli/tests/`
+- Run a single engine test file: `pytest engine/tests/test_hub_pipeline.py -v`
+- Run a single CLI test file: `pytest cli/tests/test_hub_discovery.py -v`
+- Coverage: `pytest --cov=antigravity_engine engine/tests/`
+- Sandbox tests: `pytest engine/tests/test_local_sandbox.py engine/tests/test_microsandbox_sandbox.py engine/tests/test_factory.py -v`
 
 ### Lint / Format
 - No repo-level linter/formatter configs were found.
@@ -61,7 +63,7 @@ rules in `.cursorrules`, `.antigravity/rules.md`, and `CONTEXT.md`.
 - Optional sanity check for tools: `python -m py_compile antigravity_engine/tools/*.py`
 
 ### CI
-- GitHub Actions runs `pytest tests/` on pushes/PRs (`.github/workflows/test.yml`).
+- GitHub Actions installs `engine/` and `cli/` separately, runs both test suites, and verifies the published CLI entrypoints (`.github/workflows/test.yml`).
 
 ## Code Style (Python)
 - **Type hints are required** for all function signatures.

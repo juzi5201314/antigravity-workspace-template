@@ -28,9 +28,9 @@ def analyze_sentiment(text: str) -> dict:
     return {"score": 0.3, "label": "neutral"}
 ```
 
-2. **Restart Agent** (one-time):
+2. **Refresh the Knowledge Hub** (one-time):
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
 3. **Use Immediately** in prompts:
@@ -149,9 +149,9 @@ GET /api/users - fetch all users
 POST /api/users - create new user" > .context/api_docs.md
 ```
 
-2. **Restart Agent** (one-time):
+2. **Refresh the Knowledge Hub** (one-time):
 ```bash
-ag-engine
+ag refresh --workspace .
 ```
 
 3. **Automatic Injection**:
@@ -267,8 +267,8 @@ python -m py_compile antigravity_engine/tools/my_tool.py
 # 3. Check for syntax errors
 python -c "import antigravity_engine.tools.my_tool"
 
-# 4. Restart agent
-ag-engine
+# 4. Refresh the knowledge hub
+ag refresh --workspace .
 ```
 
 ### Context not loading
@@ -282,8 +282,8 @@ cat .context/your_file.md
 # 3. Check file size (should be < 100KB)
 du -sh .context/
 
-# 4. Restart agent
-ag-engine
+# 4. Refresh the knowledge hub
+ag refresh --workspace .
 ```
 
 ### Agent performance issues
@@ -294,8 +294,8 @@ du -sh .context/
 # Remove large or outdated files
 rm .context/old_documentation.md
 
-# Restart agent
-ag-engine
+# Refresh the knowledge hub
+ag refresh --workspace .
 ```
 
 ## 📚 Examples

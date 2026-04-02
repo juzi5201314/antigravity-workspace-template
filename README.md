@@ -118,13 +118,15 @@ Now when Claude Code needs to understand your codebase, it calls `ask_project(".
 |:--------|:-------------|:-----------:|
 | `ag init <dir>` | Inject cognitive architecture templates | No |
 | `ag init <dir> --force` | Re-inject, overwriting existing files | No |
+| `ag refresh --workspace <dir>` | CLI convenience wrapper around the knowledge-hub refresh pipeline | Yes |
+| `ag ask "question" --workspace <dir>` | CLI convenience wrapper around the routed project Q&A flow | Yes |
 | `ag-refresh` | Multi-agent self-learning of codebase, generates module knowledge docs + `conventions.md` + `structure.md` | Yes |
 | `ag-ask "question"` | Router → ModuleAgent/GitAgent routed Q&A | Yes |
 | `ag-mcp --workspace <dir>` | **Start MCP server** — exposes `ask_project` + `refresh_project` to Claude Code | Yes |
 | `ag report "message"` | Log a finding to `.antigravity/memory/` | No |
 | `ag log-decision "what" "why"` | Log an architectural decision | No |
 
-All commands accept `--workspace <dir>` to target any directory.
+`ag ask` / `ag refresh` are available when both `cli/` and `engine/` are installed. `ag-ask` / `ag-refresh` are the engine-only entrypoints.
 
 ---
 
@@ -136,14 +138,19 @@ antigravity-workspace-template/
 │   └── templates/           # .cursorrules, CLAUDE.md, .antigravity/, ...
 └── engine/                  # Multi-agent engine + Knowledge Hub
     └── antigravity_engine/
-        ├── _cli_entry.py    # ag-ask / ag-refresh entry points
+        ├── _cli_entry.py    # ag-ask / ag-refresh / ag-mcp + python -m dispatch
         ├── config.py        # Pydantic configuration
         ├── hub/             # ★ Core: multi-agent cluster
         │   ├── agents.py    #   Router + ModuleAgent + GitAgent
-        │   ├── pipeline.py  #   refresh / ask orchestration
-        │   ├── ask_tools.py #   Code exploration + GitNexus tools
-        │   ├── scanner.py   #   Project scanning + module detection
-        │   └── mcp_server.py#   MCP server (ag-mcp)
+        │   ├── ask_pipeline.py
+        │   ├── refresh_pipeline.py
+        │   ├── ask_tools.py
+        │   ├── scanner.py
+        │   ├── structure.py
+        │   ├── knowledge_graph.py
+        │   ├── retrieval_graph.py
+        │   ├── pipeline.py  #   compatibility re-export shim
+        │   └── mcp_server.py
         ├── mcp_client.py    # MCP consumer (connects external tools)
         ├── memory.py        # Persistent interaction memory
         ├── tools/           # MCP query tools + extensions
@@ -163,6 +170,15 @@ antigravity-workspace-template/
 # Install both for full experience
 pip install "git+https://...#subdirectory=cli"
 pip install "git+https://...#subdirectory=engine"
+```
+
+For local work on this repository itself:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ./cli -e './engine[dev]'
+pytest engine/tests cli/tests
 ```
 
 ---

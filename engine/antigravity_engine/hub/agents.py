@@ -415,7 +415,7 @@ def _read_structure_map(workspace: Path) -> str:
             return doc_path.read_text(encoding="utf-8")
         except OSError:
             pass
-    return "(No structure map available. Run `ag-hub refresh` first.)"
+    return "(No structure map available. Run `ag-refresh --workspace /path/to/project` first.)"
 
 
 # ---------------------------------------------------------------------------

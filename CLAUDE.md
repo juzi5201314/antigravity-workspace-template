@@ -31,28 +31,29 @@ Built on Google Gemini (optimized for Gemini 2.0 Flash) but architecturally LLM-
 
 ### Engine Setup
 ```bash
-cd engine
-python -m venv venv && source venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv venv && source venv/bin/activate
+pip install -e ./cli -e './engine[dev]'
 ```
 
-### Run Agent
+### Run Knowledge Hub
 ```bash
-cd engine
-python agent.py "Your task here"
-python agent.py --workspace /path/to/project "Your task here"
+ag refresh --workspace .
+ag ask "How does this project work?" --workspace .
+ag-refresh --workspace .
+ag-ask "How does auth work?"
+ag-mcp --workspace .
 ```
 
 ### Tests
 ```bash
-# All tests (from engine/ directory)
-pytest tests/
+# All tests
+pytest engine/tests cli/tests
 
-# Single test file
-pytest tests/test_agent.py -v
+# Engine tests only
+pytest engine/tests/
 
-# Single test case
-pytest tests/test_agent.py::test_agent_initialization -v
+# CLI tests only
+pytest cli/tests/
 ```
 
 ### CLI (ag init)
@@ -68,7 +69,7 @@ docker build -t antigravity-agent:latest .
 docker build -f Dockerfile.sandbox -t antigravity-sandbox:latest .
 ```
 
-CI runs `pytest tests/` on Python 3.12, triggered on push/PR to `main` (`.github/workflows/test.yml`).
+CI installs `engine/` and `cli/` separately, runs both test suites, and verifies the published CLI entrypoints on Python 3.12 (`.github/workflows/test.yml`).
 
 ## Architecture
 

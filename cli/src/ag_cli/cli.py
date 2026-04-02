@@ -12,6 +12,7 @@ import sys
 import time
 from importlib import resources as importlib_resources
 from pathlib import Path
+from typing import Final
 
 import typer
 from rich.console import Console
@@ -75,43 +76,59 @@ def _copy_tree(src: Path, dst: Path, force: bool = False) -> list[str]:
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # cli/src/ag_cli/cli.py → repo root
+_ENGINE_SCRIPTS: Final[dict[str, str]] = {
+    "ask": "ag-ask",
+    "refresh": "ag-refresh",
+    "mcp": "ag-mcp",
+}
 
 
 def _run_hub(workspace: Path, *args: str) -> int:
-    """Console script first, then python -m fallback."""
+    """Run a supported engine-backed command.
+
+    Args:
+        workspace: Target project root.
+        *args: Command name followed by command-specific arguments.
+
+    Returns:
+        Exit code from the delegated engine process.
+    """
     import subprocess
 
-    ag_hub = shutil.which("ag-hub")
-    if ag_hub:
-        cmd = [ag_hub] + list(args) + ["--workspace", str(workspace)]
-        return subprocess.run(cmd, check=False).returncode
+    if not args:
+        console.print("[red]No engine command provided.[/red]")
+        return 1
 
-    engine_dir = _REPO_ROOT / "engine"
-    if (engine_dir / "antigravity_engine" / "hub" / "__main__.py").exists():
-        cmd = [sys.executable, "-m", "antigravity_engine.hub"] + list(args) + ["--workspace", str(workspace)]
-        return subprocess.run(cmd, cwd=str(engine_dir), check=False).returncode
+    command = args[0]
+    script_name = _ENGINE_SCRIPTS.get(command)
+    if script_name is None:
+        console.print(f"[red]Unsupported engine command: {command}[/red]")
+        return 1
 
-    console.print("[red]Engine not installed. Install: pip install git+...#subdirectory=engine[/red]")
-    return 1
-
-
-def _run_engine(workspace: Path, *args: str) -> int:
-    """Console script first, then python -m fallback."""
-    import subprocess
-
-    ag_engine = shutil.which("ag-engine")
-    if ag_engine:
-        cmd = [ag_engine] + list(args) + ["--workspace", str(workspace)]
+    script_path = shutil.which(script_name)
+    if script_path:
+        cmd = [script_path] + list(args[1:]) + ["--workspace", str(workspace)]
         return subprocess.run(cmd, check=False).returncode
 
     engine_dir = _REPO_ROOT / "engine"
     if (engine_dir / "antigravity_engine" / "__main__.py").exists():
-        cmd = [sys.executable, "-m", "antigravity_engine"] + list(args) + ["--workspace", str(workspace)]
+        cmd = [
+            sys.executable,
+            "-m",
+            "antigravity_engine",
+            command,
+            *args[1:],
+            "--workspace",
+            str(workspace),
+        ]
         return subprocess.run(cmd, cwd=str(engine_dir), check=False).returncode
 
-    console.print("[red]Engine not installed.[/red]")
+    console.print(
+        "[red]Engine not installed. Install: pip install ./engine "
+        "or pip install \"git+https://github.com/study8677/"
+        "antigravity-workspace-template.git#subdirectory=engine\"[/red]"
+    )
     return 1
-
 
 # ── Commands ────────────────────────────────────────────────────────
 
@@ -207,44 +224,6 @@ def version_cmd() -> None:
     from ag_cli import __version__
 
     console.print(f"[bold cyan]ag[/bold cyan] v{__version__}")
-
-
-# ── Start Engine ─────────────────────────────────────────────────────
-
-
-@app.command("start-engine")
-def start_engine_cmd(
-    workspace: str = typer.Option(
-        ".",
-        "--workspace",
-        "-w",
-        help="Path to the user workspace directory.",
-    ),
-    task: str = typer.Argument(
-        "",
-        help="Optional task to execute. If empty, uses AGENT_TASK env var.",
-    ),
-) -> None:
-    """Launch the Antigravity Agent Engine targeting a workspace."""
-    workspace_path = Path(workspace).resolve()
-
-    if not workspace_path.exists():
-        console.print(
-            f"[bold red]✗[/bold red] Workspace not found: {workspace_path}"
-        )
-        raise typer.Exit(code=1)
-
-    console.print(
-        f"[cyan]⚛  Starting engine for workspace:[/cyan] "
-        f"[bold]{workspace_path}[/bold]"
-    )
-
-    args: list[str] = []
-    if task:
-        args.append(task)
-
-    code = _run_engine(workspace_path, *args)
-    raise typer.Exit(code=code)
 
 
 # ── Hub Commands ─────────────────────────────────────────────────────
