@@ -29,6 +29,10 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     Returns:
         Answer string.
+
+    Notes:
+        MCP servers are only auto-connected when both ``MCP_ENABLED=true`` and
+        ``AG_ALLOW_MCP=true`` are set in the runtime environment.
     """
     from agents import set_tracing_disabled
 
@@ -62,7 +66,12 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
 
     mcp_tools: dict | None = None
     mcp_manager = None
-    if settings.MCP_ENABLED:
+    mcp_runtime_opt_in = os.environ.get("AG_ALLOW_MCP", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if settings.MCP_ENABLED and mcp_runtime_opt_in:
         print("[…] Connecting to MCP servers...", file=sys.stderr)
         try:
             from antigravity_engine.mcp_client import MCPClientManager
@@ -78,6 +87,10 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
             logger.warning("MCP initialization failed: %s", exc)
             print(f"  ⚠ MCP init failed: {exc}", file=sys.stderr)
             mcp_manager = None
+    elif settings.MCP_ENABLED:
+        logger.info(
+            "MCP is enabled in settings but AG_ALLOW_MCP is not set; skipping MCP server autoconnection"
+        )
 
     agent = build_reviewer_agent(model, workspace=workspace, mcp_tools=mcp_tools)
     try:
