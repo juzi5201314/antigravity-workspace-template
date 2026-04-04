@@ -123,7 +123,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         print("[2/3] Scan-only mode enabled; skipping LLM analysis.", file=sys.stderr)
         conventions_content = _build_fallback_conventions(report)
 
-    print("[3/7] Writing conventions.md...", file=sys.stderr)
+    print("[3/8] Writing conventions.md...", file=sys.stderr)
 
     (ag_dir / "conventions.md").write_text(conventions_content, encoding="utf-8")
 
@@ -132,11 +132,11 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     # would overwrite the full artifacts with near-empty content.
     # Skip these stages and keep the previous full-refresh output.
     if not quick:
-        print("[4/7] Generating structure.md...", file=sys.stderr)
+        print("[4/8] Generating structure.md...", file=sys.stderr)
         structure_content = extract_structure(workspace)
         (ag_dir / "structure.md").write_text(structure_content, encoding="utf-8")
 
-        print("[5/7] Building knowledge graph artifacts...", file=sys.stderr)
+        print("[5/8] Building knowledge graph artifacts...", file=sys.stderr)
         graph = build_knowledge_graph(workspace, report)
         (ag_dir / "knowledge_graph.json").write_text(
             json.dumps(graph, ensure_ascii=False, indent=2),
@@ -151,16 +151,16 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
             encoding="utf-8",
         )
 
-        print("[6/7] Writing document/data/media indexes...", file=sys.stderr)
+        print("[6/8] Writing document/data/media indexes...", file=sys.stderr)
         doc_index, data_overview, media_manifest = _build_non_code_indexes(report)
         (ag_dir / "document_index.md").write_text(doc_index, encoding="utf-8")
         (ag_dir / "data_overview.md").write_text(data_overview, encoding="utf-8")
         (ag_dir / "media_manifest.md").write_text(media_manifest, encoding="utf-8")
     else:
-        print("[4-6/7] Quick mode: keeping existing structure/graph/index artifacts.", file=sys.stderr)
+        print("[4-6/8] Quick mode: keeping existing structure/graph/index artifacts.", file=sys.stderr)
 
     if not refresh_scan_only:
-        print("[7/7] Module agents learning codebase...", file=sys.stderr)
+        print("[7/8] Module agents learning codebase...", file=sys.stderr)
         from antigravity_engine.hub.agents import (
             build_refresh_module_swarm,
             build_refresh_git_agent,
@@ -229,7 +229,24 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         except Exception as exc:
             print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)
     else:
-        print("[7/7] Scan-only mode: module agents skipped.", file=sys.stderr)
+        print("[7/8] Scan-only mode: module agents skipped.", file=sys.stderr)
+
+    # -- Step 8: Generate module_registry.md via LLM --
+    if not refresh_scan_only:
+        print("[8/8] Generating module registry...", file=sys.stderr)
+        try:
+            registry_content = await _generate_module_registry(workspace, model)
+            (ag_dir / "module_registry.md").write_text(registry_content, encoding="utf-8")
+            print(f"  ✓ module_registry.md generated", file=sys.stderr)
+        except Exception as exc:
+            print(f"  ⚠ Module registry generation failed: {exc}", file=sys.stderr)
+            # Fallback: build a basic registry from structure.md
+            fallback = _build_fallback_registry(workspace)
+            if fallback:
+                (ag_dir / "module_registry.md").write_text(fallback, encoding="utf-8")
+                print(f"  ✓ module_registry.md generated (fallback)", file=sys.stderr)
+    else:
+        print("[8/8] Scan-only mode: module registry skipped.", file=sys.stderr)
 
     current_sha = _get_head_sha(workspace)
     if current_sha:
@@ -243,6 +260,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     print(f"Updated {ag_dir / 'document_index.md'}")
     print(f"Updated {ag_dir / 'data_overview.md'}")
     print(f"Updated {ag_dir / 'media_manifest.md'}")
+    if (ag_dir / "module_registry.md").exists():
+        print(f"Updated {ag_dir / 'module_registry.md'}")
     modules_dir = ag_dir / "modules"
     if modules_dir.exists():
         mod_count = len(list(modules_dir.glob("*.md")))
@@ -419,6 +438,238 @@ def _build_scan_payload(report) -> dict[str, object]:
         "oversized_files": int(getattr(report, "oversized_files", 0)),
         "binary_files": int(getattr(report, "binary_files", 0)),
     }
+
+
+async def _generate_module_registry(workspace: Path, model: str) -> str:
+    """Call LLM to generate a module registry from all available knowledge.
+
+    Reads structure.md (always available) and modules/*.md (if generated),
+    then asks the LLM to produce a concise 2-3 sentence description per module.
+
+    Args:
+        workspace: Project root directory.
+        model: LLM model identifier.
+
+    Returns:
+        Markdown content for module_registry.md.
+    """
+    from antigravity_engine.hub.scanner import detect_modules
+
+    ag_dir = workspace / ".antigravity"
+    modules = detect_modules(workspace)
+
+    # -- Collect per-module evidence --
+    from antigravity_engine.hub.scanner import resolve_module_path
+
+    # Read structure.md once
+    structure = ""
+    structure_file = ag_dir / "structure.md"
+    if structure_file.is_file():
+        try:
+            structure = structure_file.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    module_evidence: list[str] = []
+    for mod in modules:
+        parts: list[str] = [f"### Module: {mod}"]
+
+        # Source 1: module knowledge doc (best quality, from RefreshModuleAgent)
+        mod_doc = ag_dir / "modules" / f"{mod}.md"
+        if mod_doc.is_file():
+            try:
+                content = mod_doc.read_text(encoding="utf-8")
+                # Take first 800 chars — usually contains purpose + key files
+                parts.append(f"**Deep knowledge (excerpt):**\n{content[:800]}")
+            except OSError:
+                pass
+
+        # Source 2: structure.md section (AST-extracted)
+        # Use resolve_module_path for accurate directory matching
+        mod_path = resolve_module_path(workspace, mod)
+        rel_dir = str(mod_path.relative_to(workspace)) + "/"
+        if structure:
+            section = _extract_module_section(structure, mod, rel_dir)
+            if section:
+                parts.append(f"**Code structure:**\n{section[:1200]}")
+
+        # Source 3: fallback — list actual files if structure.md had no section
+        if len(parts) == 1:  # Only has the header, no evidence yet
+            file_listing = _list_module_files(mod_path)
+            if file_listing:
+                parts.append(f"**Files in module:**\n{file_listing[:1200]}")
+
+        module_evidence.append("\n".join(parts))
+
+    # -- Build LLM prompt --
+    evidence_text = "\n\n---\n\n".join(module_evidence)
+
+    # Include conventions.md for overall context
+    conventions = ""
+    conv_file = ag_dir / "conventions.md"
+    if conv_file.is_file():
+        try:
+            conventions = conv_file.read_text(encoding="utf-8")[:2000]
+        except OSError:
+            pass
+
+    prompt = f"""\
+You are a senior software architect. Based on the evidence below, write a
+**Module Registry** — a concise reference that describes what each module
+is responsible for.
+
+For EACH module, write exactly:
+- **Module name** (as given)
+- **2-3 sentences** describing: what it does, what it owns, what other
+  modules depend on it or it depends on.
+
+The registry will be used by a Router agent to decide which module expert
+to consult for a given question. So focus on **what questions each module
+can answer** — not implementation details.
+
+Output ONLY the Markdown registry. Start with `# Module Registry`. Use a
+bullet list with bold module names.
+
+---
+
+## Project Overview
+{conventions}
+
+---
+
+## Module Evidence
+
+{evidence_text}
+"""
+
+    # -- Single LLM call --
+    from agents import Agent, Runner
+
+    registry_agent = Agent(
+        name="RegistryWriter",
+        instructions="Output only the requested Markdown. No commentary.",
+        model=model,
+    )
+
+    registry_timeout = float(os.environ.get("AG_REGISTRY_TIMEOUT_SECONDS", "60"))
+    if registry_timeout > 0:
+        result = await asyncio.wait_for(
+            Runner.run(registry_agent, prompt),
+            timeout=registry_timeout,
+        )
+    else:
+        result = await Runner.run(registry_agent, prompt)
+
+    return result.final_output
+
+
+def _extract_module_section(structure_text: str, module_id: str, rel_dir: str = "") -> str:
+    """Extract lines from structure.md relevant to a module.
+
+    Matches both ``## dir/`` section headers and ``### dir/file.py`` file
+    entries whose path starts with the module's resolved directory.
+
+    Args:
+        structure_text: Full content of structure.md.
+        module_id: Module identifier (e.g. "src_tools", "frontend").
+        rel_dir: Resolved relative directory path (e.g. "src/opencmo/tools/").
+
+    Returns:
+        Extracted section text, or empty string.
+    """
+    # Build prefixes to match
+    prefixes: list[str] = [f"{module_id}/"]
+    if rel_dir:
+        prefixes.append(rel_dir)
+        prefixes.append(rel_dir.rstrip("/"))
+    if "_" in module_id:
+        parts = module_id.split("_", 1)
+        prefixes.append(f"{parts[0]}/{parts[1]}/")
+
+    def _line_matches(line: str) -> bool:
+        # Match ## or ### headers that contain a matching path
+        stripped = line.lstrip("#").strip()
+        return any(stripped.startswith(p) or stripped.startswith(p.rstrip("/")) for p in prefixes)
+
+    lines = structure_text.splitlines()
+    result: list[str] = []
+    collecting = False
+
+    for line in lines:
+        if line.startswith("## ") or line.startswith("### "):
+            if _line_matches(line):
+                collecting = True
+                result.append(line)
+                continue
+            elif collecting and line.startswith("## "):
+                # New top-level section that doesn't match → stop
+                if not _line_matches(line):
+                    collecting = False
+                    continue
+        if collecting:
+            result.append(line)
+
+    return "\n".join(result[:80])  # Cap at 80 lines per module
+
+
+def _list_module_files(mod_path: Path) -> str:
+    """List Python/JS/TS files in a module directory for evidence.
+
+    Args:
+        mod_path: Absolute path to the module directory.
+
+    Returns:
+        Newline-separated list of relative file paths, or empty string.
+    """
+    if not mod_path.is_dir():
+        return ""
+    exts = {".py", ".ts", ".tsx", ".js", ".jsx"}
+    files: list[str] = []
+    try:
+        for f in sorted(mod_path.rglob("*")):
+            if f.is_file() and f.suffix in exts and "__pycache__" not in str(f):
+                files.append(f"- {f.relative_to(mod_path)}")
+    except OSError:
+        pass
+    return "\n".join(files[:50])
+
+
+def _build_fallback_registry(workspace: Path) -> str:
+    """Build a basic module registry without LLM, from structure.md.
+
+    Used when the LLM call fails. Extracts file listings per module
+    and uses them as rough descriptions.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Markdown content for a fallback registry, or empty string.
+    """
+    from antigravity_engine.hub.scanner import detect_modules, resolve_module_path
+
+    ag_dir = workspace / ".antigravity"
+    modules = detect_modules(workspace)
+    if not modules:
+        return ""
+
+    structure_file = ag_dir / "structure.md"
+    structure = ""
+    if structure_file.is_file():
+        try:
+            structure = structure_file.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
+    lines: list[str] = ["# Module Registry (auto-generated fallback)\n"]
+    for mod in modules:
+        rel_dir = str(resolve_module_path(workspace, mod).relative_to(workspace)) + "/"
+        section = _extract_module_section(structure, mod, rel_dir) if structure else ""
+        file_count = section.count("###")
+        desc = f"Contains {file_count} files." if file_count else "No structure data available."
+        lines.append(f"- **{mod}**: {desc}")
+
+    return "\n".join(lines)
 
 
 def _build_fallback_conventions(report) -> str:

@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP server → Claude Code calls directly
 ```
 
-**Dynamic Multi-Agent Cluster** — During `ag-refresh`, each code module gets a RefreshModuleAgent that autonomously reads the code and generates a deep knowledge doc. During `ag-ask`, Router reads the structure map and routes questions to the right ModuleAgent. Agents can handoff across modules. Powered by OpenAI Agent SDK + LiteLLM.
+**Dynamic Multi-Agent Cluster** — During `ag-refresh`, each code module gets a RefreshModuleAgent that autonomously reads the code and generates a deep knowledge doc. A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent. Agents can handoff across modules. Powered by OpenAI Agent SDK + LiteLLM.
 
 **GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
@@ -208,12 +208,15 @@ Creates `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.win
 ag-refresh --workspace my-project
 ```
 
-**5-step pipeline:**
+**8-step pipeline:**
 1. Scan codebase (languages, frameworks, structure)
 2. Multi-agent pipeline generates `conventions.md`
 3. Generate `structure.md` structure map
-4. **Dynamically create RefreshModuleAgents** — one per code module, each autonomously reads code and writes a deep knowledge doc to `.antigravity/modules/*.md`
-5. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
+4. Build knowledge graph (`knowledge_graph.json` + mermaid)
+5. Write document/data/media indexes
+6. **Dynamically create RefreshModuleAgents** — one per code module, each autonomously reads code and writes a deep knowledge doc to `.antigravity/modules/*.md`
+7. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
+8. **RegistryAgent** reads all knowledge artifacts → calls LLM → generates `module_registry.md` (2-3 sentence semantic description per module, used by Router for intelligent routing)
 
 ### 3. `ag-ask` — Router-based Q&A
 
@@ -280,12 +283,14 @@ The engine's core is **a dynamically created Agent cluster per code module**:
 ```
  ag-refresh:                              ag-ask:
 
- ┌─ RefreshModule_engine ──→ engine.md    Router (reads structure.md map)
+ ┌─ RefreshModule_engine ──→ engine.md    Router (reads module_registry.md)
  ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine (pre-loaded engine.md)
- └─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-loaded cli.md)
-                                             ├──→ GitAgent (pre-loaded _git.md)
+ ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-loaded cli.md)
+ └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent (pre-loaded _git.md)
                                              └──→ Agents can handoff to each other
 ```
+
+**Key: `module_registry.md`** — During refresh, a RegistryAgent reads all module knowledge and generates a concise semantic description per module. The Router reads this registry to make routing decisions — it knows *what each module is responsible for*, not just what files it contains. This is what enables the Router to correctly route "database schema" → `src_storage` instead of guessing from file names.
 
 ```bash
 # ModuleAgents self-learn your codebase
@@ -382,9 +387,11 @@ Tested end-to-end against the [OpenCMO](https://github.com/study8677/OpenCMO) co
 $ ag-refresh --workspace /path/to/OpenCMO
 [1/3] Scanning project... 374 files, 0.02s
 [2/3] Analyzing with multi-agent swarm...
-      conventions.md  ✅ 289 lines
-      structure.md    ✅ 1384 lines
-      knowledge_graph ✅ 540KB JSON + mermaid
+      conventions.md    ✅ 289 lines
+      structure.md      ✅ 1384 lines
+      knowledge_graph   ✅ 540KB JSON + mermaid
+[8/8] Generating module registry...
+      module_registry   ✅ 9 modules with semantic descriptions
 ```
 
 ### Ask evaluation matrix (18 tests)
@@ -398,6 +405,7 @@ $ ag-refresh --workspace /path/to/OpenCMO
 | Precise function | "get_model() in llm.py signature" | **Pass** | 5/5 — **100% accurate** file, line, logic |
 | Hallucination test | "Does this support GraphQL?" | **Pass** | 5/5 — correctly said **No** with 4-point evidence |
 | Chinese query | "社区监控支持哪些平台?" | **Pass** | 5/5 — Chinese answer, platform style table |
+| Database schema | "List all database tables" | **Pass** | 5/5 — 34 tables listed with source file (registry-routed to src_storage) |
 | Approval workflow | "How does approval work?" | **Pass** | 5/5 — full state machine with line numbers |
 | Empty/garbage input | "" / "AAAA...×5000" | **Pass** | 4/5 — graceful handling |
 | Complex architecture | "How does multi-agent work?" (120s) | **Pass** | 5/5 — 20 agents listed, comm patterns, diagrams |

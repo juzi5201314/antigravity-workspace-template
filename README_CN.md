@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP 服务端 → Claude Code 直接调用
 ```
 
-**动态多智能体集群** —— `ag-refresh` 时，每个代码模块动态分配一个 RefreshModuleAgent 自主阅读代码、生成深度知识文档。`ag-ask` 时，Router 根据结构图将问题路由到对应模块的 ModuleAgent，Agent 间可跨模块通讯。基于 OpenAI Agent SDK + LiteLLM。
+**动态多智能体集群** —— `ag-refresh` 时，每个代码模块动态分配一个 RefreshModuleAgent 自主阅读代码、生成深度知识文档。**RegistryAgent** 随后汇总所有模块知识为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，将问题精准路由到对应 ModuleAgent，Agent 间可跨模块通讯。基于 OpenAI Agent SDK + LiteLLM。
 
 **GitAgent** —— 专门分析 git 历史的 Agent，了解「谁改了什么、为什么改」。
 
@@ -192,12 +192,15 @@ ag init my-project --force
 ag-refresh --workspace my-project
 ```
 
-**5 步流程：**
+**8 步流程：**
 1. 扫描代码库（语言、框架、结构）
 2. 多 Agent 管道生成 `conventions.md`
 3. 生成 `structure.md` 结构图
-4. **动态创建 RefreshModuleAgent**——每个代码模块一个 Agent，自主阅读代码、生成深度知识文档到 `.antigravity/modules/*.md`
-5. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
+4. 构建知识图谱（`knowledge_graph.json` + mermaid）
+5. 写入文档/数据/媒体索引
+6. **动态创建 RefreshModuleAgent**——每个代码模块一个 Agent，自主阅读代码、生成深度知识文档到 `.antigravity/modules/*.md`
+7. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
+8. **RegistryAgent** 读取所有知识产物 → 调用 LLM → 生成 `module_registry.md`（每个模块 2-3 句语义描述，供 Router 做智能路由）
 
 ### 3. `ag-ask` — Router 路由问答
 
@@ -264,12 +267,14 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 ```
  ag-refresh 时：                          ag-ask 时：
 
- ┌─ RefreshModule_engine ──→ engine.md    Router（读 structure.md 地图）
+ ┌─ RefreshModule_engine ──→ engine.md    Router（读 module_registry.md）
  ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine（已加载 engine.md）
- └─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli（已加载 cli.md）
-                                             ├──→ GitAgent（已加载 _git.md）
+ ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli（已加载 cli.md）
+ └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent（已加载 _git.md）
                                              └──→ Agent 间可互相 handoff
 ```
+
+**关键：`module_registry.md`** —— Refresh 时 RegistryAgent 读取所有模块知识，生成每个模块的语义描述。Router 靠这份 registry 做路由——它知道*每个模块负责什么*，而不只是里面有哪些文件。这使得 Router 能正确将"数据库 schema"路由到 `src_storage`，而非靠文件名猜测。
 
 ```bash
 # 模块 Agent 自主学习代码库
@@ -386,9 +391,11 @@ ag-ask "认证流程是怎么工作的？"
 $ ag-refresh --workspace /path/to/OpenCMO
 [1/3] Scanning project... 374 files, 0.02s
 [2/3] Analyzing with multi-agent swarm...
-      conventions.md  ✅ 289 行
-      structure.md    ✅ 1384 行
-      knowledge_graph ✅ 540KB JSON + mermaid
+      conventions.md    ✅ 289 行
+      structure.md      ✅ 1384 行
+      knowledge_graph   ✅ 540KB JSON + mermaid
+[8/8] Generating module registry...
+      module_registry   ✅ 9 个模块语义描述
 ```
 
 ### Ask 评估矩阵（18 项测试）
@@ -402,6 +409,7 @@ $ ag-refresh --workspace /path/to/OpenCMO
 | 精确函数 | "llm.py 里 get_model() 的签名" | **通过** | 5/5 — **100% 准确**：文件、行号、逻辑 |
 | 幻觉测试 | "支持 GraphQL 吗？" | **通过** | 5/5 — 正确否定，4 维证据链 |
 | 中文查询 | "社区监控支持哪些平台？" | **通过** | 5/5 — 中文回答，平台风格表 |
+| 数据库 Schema | "列出所有数据库表" | **通过** | 5/5 — 34 张表全列出，含源文件（registry 路由到 src_storage）|
 | 审批流程 | "审批流程怎么工作？" | **通过** | 5/5 — 完整状态机，含行号 |
 | 复杂架构 | "多 Agent 系统怎么工作？"（120s） | **通过** | 5/5 — 20 个 Agent 详列，通信模式，架构图 |
 | 端到端追踪 | "追踪创建项目的完整数据流" | **超时** | 1/5 — 需要 >45s |

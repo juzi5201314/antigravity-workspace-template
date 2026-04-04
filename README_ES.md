@@ -111,7 +111,7 @@ ag init mi-proyecto && cd mi-proyecto
        └──► ag-mcp         Servidor MCP → Claude Code llama directamente
 ```
 
-**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, cada módulo de código recibe un RefreshModuleAgent que lee código autónomamente y genera un documento de conocimiento profundo. Durante `ag-ask`, Router lee el mapa estructural y enruta preguntas al ModuleAgent correcto. Los agentes pueden hacer handoff entre módulos. Basado en OpenAI Agent SDK + LiteLLM.
+**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, cada módulo de código recibe un RefreshModuleAgent que lee código autónomamente y genera un documento de conocimiento profundo. Un **RegistryAgent** resume todos los módulos en un registry semántico. Durante `ag-ask`, Router lee el registry para entender *de qué es responsable cada módulo* y enruta preguntas al ModuleAgent correcto. Los agentes pueden hacer handoff entre módulos. Basado en OpenAI Agent SDK + LiteLLM.
 
 **GitAgent** — Un agente dedicado a analizar el historial git — entiende quién cambió qué y por qué.
 
@@ -192,12 +192,15 @@ Crea `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsu
 ag-refresh --workspace mi-proyecto
 ```
 
-**Pipeline de 5 pasos:**
+**Pipeline de 8 pasos:**
 1. Escanear codebase (lenguajes, frameworks, estructura)
 2. Pipeline multi-agente genera `conventions.md`
 3. Generar mapa `structure.md`
-4. **Crear RefreshModuleAgents dinámicamente** — uno por módulo de código, cada uno lee código autónomamente y escribe un doc de conocimiento en `.antigravity/modules/*.md`
-5. **RefreshGitAgent** analiza historial git, genera `_git_insights.md`
+4. Construir grafo de conocimiento (`knowledge_graph.json` + mermaid)
+5. Escribir índices de documentos/datos/media
+6. **Crear RefreshModuleAgents dinámicamente** — uno por módulo de código, cada uno lee código autónomamente y escribe un doc de conocimiento en `.antigravity/modules/*.md`
+7. **RefreshGitAgent** analiza historial git, genera `_git_insights.md`
+8. **RegistryAgent** lee todos los artefactos → llama al LLM → genera `module_registry.md` (descripción semántica de 2-3 frases por módulo, usado por el Router para enrutamiento inteligente)
 
 ### 3. `ag-ask` — Q&A basado en Router
 
@@ -264,12 +267,14 @@ El núcleo del motor es **un clúster de Agents creado dinámicamente por módul
 ```
  ag-refresh:                              ag-ask:
 
- ┌─ RefreshModule_engine ──→ engine.md    Router (lee mapa structure.md)
+ ┌─ RefreshModule_engine ──→ engine.md    Router (lee module_registry.md)
  ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine (pre-cargado engine.md)
- └─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-cargado cli.md)
-                                             ├──→ GitAgent (pre-cargado _git.md)
+ ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-cargado cli.md)
+ └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent (pre-cargado _git.md)
                                              └──→ Agents pueden hacer handoff entre sí
 ```
+
+**Clave: `module_registry.md`** — Durante refresh, un RegistryAgent lee todo el conocimiento de los módulos y genera una descripción semántica concisa por módulo. El Router lee este registry para tomar decisiones de enrutamiento — sabe *de qué es responsable cada módulo*, no solo qué archivos contiene. Esto permite al Router enrutar correctamente "esquema de base de datos" → `src_storage` en vez de adivinar por nombres de archivo.
 
 ```bash
 # ModuleAgents aprenden tu codebase
@@ -363,9 +368,11 @@ Evaluado end-to-end contra el codebase [OpenCMO](https://github.com/study8677/Op
 $ ag-refresh --workspace /path/to/OpenCMO
 [1/3] Scanning project... 374 files, 0.02s
 [2/3] Analyzing with multi-agent swarm...
-      conventions.md  ✅ 289 líneas
-      structure.md    ✅ 1384 líneas
-      knowledge_graph ✅ 540KB JSON + mermaid
+      conventions.md    ✅ 289 líneas
+      structure.md      ✅ 1384 líneas
+      knowledge_graph   ✅ 540KB JSON + mermaid
+[8/8] Generating module registry...
+      module_registry   ✅ 9 módulos con descripciones semánticas
 ```
 
 ### Matriz de evaluación Ask (18 tests)
@@ -379,6 +386,7 @@ $ ag-refresh --workspace /path/to/OpenCMO
 | Función precisa | "firma de get_model() en llm.py" | **OK** | 5/5 — **100% preciso**: archivo, línea, lógica |
 | Test de alucinación | "¿Soporta GraphQL?" | **OK** | 5/5 — correctamente dijo **No** con 4 evidencias |
 | Consulta en chino | "社区监控支持哪些平台?" | **OK** | 5/5 — respuesta en chino, tabla de plataformas |
+| Esquema de BD | "Lista todas las tablas" | **OK** | 5/5 — 34 tablas listadas con archivo fuente (registry enrutó a src_storage) |
 | Flujo de aprobación | "¿Cómo funciona la aprobación?" | **OK** | 5/5 — máquina de estados completa con números de línea |
 | Arquitectura compleja | "¿Cómo funciona el sistema multi-agente?" (120s) | **OK** | 5/5 — 20 agentes listados, patrones de comunicación |
 | Tracing end-to-end | "Traza el flujo de crear proyecto" | **Timeout** | 1/5 — necesita >45s |

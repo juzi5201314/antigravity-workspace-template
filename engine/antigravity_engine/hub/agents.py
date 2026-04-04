@@ -435,6 +435,24 @@ def _read_structure_map(workspace: Path) -> str:
     return "(No structure map available. Run `ag-refresh --workspace /path/to/project` first.)"
 
 
+def _read_module_registry(workspace: Path) -> str | None:
+    """Read the module registry (generated during refresh step 8).
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Content of module_registry.md, or None if not available.
+    """
+    doc_path = workspace / ".antigravity" / "module_registry.md"
+    if doc_path.is_file():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Build Refresh Module Swarm
 # ---------------------------------------------------------------------------
@@ -646,13 +664,24 @@ def build_ask_swarm(
     )
     workers.append(full_worker)
 
-    # Build Router — reads structure.md for navigation
-    structure_map = _read_structure_map(workspace)
+    # Build Router — prefers module_registry.md (semantic) over structure.md (file list)
     module_list = ", ".join(f"Module_{m}" for m in areas)
-    router_instructions = _ROUTER_INSTRUCTIONS + (
-        f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
-        f"**Project Structure Map:**\n{structure_map}"
-    )
+    registry = _read_module_registry(workspace)
+    if registry:
+        # Registry available: Router gets semantic module descriptions
+        # (much shorter and more useful for routing than 1000+ line structure.md)
+        router_context = (
+            f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
+            f"**Module Registry — what each agent knows:**\n{registry}"
+        )
+    else:
+        # Fallback: use structure.md (file listing)
+        structure_map = _read_structure_map(workspace)
+        router_context = (
+            f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
+            f"**Project Structure Map:**\n{structure_map}"
+        )
+    router_instructions = _ROUTER_INSTRUCTIONS + router_context
     router_instructions += mcp_capability_note
     if skill_docs.strip():
         router_instructions += f"\n\n**Loaded Skills:**\n{skill_docs}"
