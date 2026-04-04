@@ -111,7 +111,7 @@ ag init mi-proyecto && cd mi-proyecto
        └──► ag-mcp         Servidor MCP → Claude Code llama directamente
 ```
 
-**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, cada módulo de código recibe un RefreshModuleAgent que lee código autónomamente y genera un documento de conocimiento profundo. Un **RegistryAgent** resume todos los módulos en un registry semántico. Durante `ag-ask`, Router lee el registry para entender *de qué es responsable cada módulo* y enruta preguntas al ModuleAgent correcto. Los agentes pueden hacer handoff entre módulos. Basado en OpenAI Agent SDK + LiteLLM.
+**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, el motor usa **agrupación funcional inteligente**: archivos agrupados por relaciones de import (del grafo de conocimiento), co-ubicación en directorios y prefijos de nombre. El código fuente se pre-carga directamente en el contexto del agente (sin tool calls), y los artefactos de build se filtran automáticamente. Cada sub-agente analiza ~30K tokens de código enfocado en 1 llamada LLM. Un **RegistryAgent** resume todos los módulos en un registry semántico. Durante `ag-ask`, Router lee el registry para entender *de qué es responsable cada módulo*. Basado en OpenAI Agent SDK + LiteLLM.
 
 **GitAgent** — Un agente dedicado a analizar el historial git — entiende quién cambió qué y por qué.
 
@@ -198,7 +198,7 @@ ag-refresh --workspace mi-proyecto
 3. Generar mapa `structure.md`
 4. Construir grafo de conocimiento (`knowledge_graph.json` + mermaid)
 5. Escribir índices de documentos/datos/media
-6. **Crear RefreshModuleAgents dinámicamente** — uno por módulo de código, cada uno lee código autónomamente y escribe un doc de conocimiento en `.antigravity/modules/*.md`
+6. **Agrupación funcional inteligente** — archivos agrupados por grafo de imports + directorio + prefijo, pre-cargados en contexto (~30K tokens por sub-agente), artefactos de build filtrados automáticamente (dist, bundles, vendor, compilados). Cada sub-agente produce análisis profundo en 1 llamada LLM. Módulos multi-grupo usan un merge agent.
 7. **RefreshGitAgent** analiza historial git, genera `_git_insights.md`
 8. **RegistryAgent** lee todos los artefactos → llama al LLM → genera `module_registry.md` (descripción semántica de 2-3 frases por módulo, usado por el Router para enrutamiento inteligente)
 
@@ -265,16 +265,21 @@ claude mcp add antigravity ag-mcp -- --workspace /ruta/al/proyecto
 El núcleo del motor es **un clúster de Agents creado dinámicamente por módulo de código**:
 
 ```
- ag-refresh:                              ag-ask:
+ ag-refresh (v2 — agrupación inteligente):  ag-ask:
 
- ┌─ RefreshModule_engine ──→ engine.md    Router (lee module_registry.md)
- ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine (pre-cargado engine.md)
- ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-cargado cli.md)
- └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent (pre-cargado _git.md)
-                                             └──→ Agents pueden hacer handoff entre sí
+ Para cada módulo:                          Router (lee module_registry.md)
+ ┌ Agrupar archivos por grafo de imports      ├──→ Module_engine (pre-cargado engine.md)
+ ├ Pre-cargar ~30K tokens por sub-agente      ├──→ Module_cli (pre-cargado cli.md)
+ ├ Filtrar artefactos de build                ├──→ GitAgent (pre-cargado _git.md)
+ ├ Sub-agentes analizan en 1 llamada LLM      └──→ Agents pueden hacer handoff
+ ├ Merge agent combina resultados
+ └─ RegistryAgent ────→ registry.md
 ```
 
-**Clave: `module_registry.md`** — Durante refresh, un RegistryAgent lee todo el conocimiento de los módulos y genera una descripción semántica concisa por módulo. El Router lee este registry para tomar decisiones de enrutamiento — sabe *de qué es responsable cada módulo*, no solo qué archivos contiene. Esto permite al Router enrutar correctamente "esquema de base de datos" → `src_storage` en vez de adivinar por nombres de archivo.
+**Innovaciones clave:**
+- **Agrupación inteligente**: Archivos agrupados por relaciones de import del grafo de conocimiento, no por cortes arbitrarios de tokens. Artefactos de build (dist/, bundles, vendor, compilados) filtrados automáticamente.
+- **Contexto pre-cargado**: Código fuente inyectado directamente en las instrucciones del agente — cero tool calls. Un módulo que antes requería 16 turnos LLM ahora solo necesita 1.
+- **Registry de módulos**: RegistryAgent resume las responsabilidades de cada módulo. Router sabe *qué hace cada módulo*, permitiendo enrutamiento preciso ("esquema de BD" → `src_storage`).
 
 ```bash
 # ModuleAgents aprenden tu codebase

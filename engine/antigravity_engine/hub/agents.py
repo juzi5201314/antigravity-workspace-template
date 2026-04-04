@@ -512,6 +512,147 @@ def build_refresh_module_swarm(
     return agents_list
 
 
+_REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE = """\
+You are a RefreshModuleAgent analyzing the **{module}** module, group **{group_name}**.
+
+All source files in your group are pre-loaded below. Read them carefully
+and produce a detailed analysis.
+
+**Your analysis MUST cover:**
+- Purpose and responsibilities of each file (1-2 sentences per file)
+- Key classes/functions: name, purpose, parameters, relationships
+- Internal data flow: how these files call each other
+- Dependencies: what external modules these files import
+- Design patterns used
+- Public API: what these files expose to other modules
+
+**Pre-loaded source files ({file_count} files, ~{token_count} tokens):**
+
+{file_context}
+"""
+
+_REFRESH_MERGE_INSTRUCTIONS = """\
+You are a documentation writer. You are given analyses from multiple
+sub-agents, each covering a different part of the **{module}** module.
+
+Merge them into ONE comprehensive module knowledge document in Markdown.
+
+**Requirements:**
+- Start with a 2-3 sentence module overview
+- Organize by functionality, not by sub-agent
+- Deduplicate overlapping information
+- Preserve all file paths, function names, and line numbers
+- Keep it under 3000 words
+
+**Sub-agent analyses to merge:**
+
+{analyses}
+"""
+
+
+def build_refresh_module_swarm_v2(
+    model: str,
+    workspace: Path,
+) -> list:
+    """Build RefreshModuleAgents using smart functional grouping.
+
+    Uses knowledge-graph import relationships to group files into
+    functional units. Pre-loads file contents into agent context
+    instead of using tool calls.
+
+    Each sub-agent needs only 1 LLM turn (read context → produce analysis).
+    If a module has multiple groups, a merge agent combines the outputs.
+
+    Args:
+        model: Model identifier string.
+        workspace: Project root directory.
+
+    Returns:
+        List of (module_name, agent_or_agents) tuples.
+        Each entry is either:
+        - (name, Agent): single agent, run directly
+        - (name, list[Agent]): first N-1 are sub-agents, last is merge agent
+    """
+    Agent = _import_agent()
+
+    from antigravity_engine.hub.scanner import detect_modules, resolve_module_path
+    from antigravity_engine.hub.ask_tools import create_write_tools
+    from antigravity_engine.hub.module_grouping import (
+        load_module_files,
+        group_files,
+        format_group_context,
+    )
+
+    modules = detect_modules(workspace)
+    result: list = []
+
+    for mod in modules:
+        mod_path = resolve_module_path(workspace, mod)
+        files = load_module_files(mod_path, workspace)
+
+        if not files:
+            continue
+
+        groups = group_files(files, workspace)
+
+        if not groups:
+            continue
+
+        write_tools = create_write_tools(workspace, mod)
+        wrapped_write = _wrap_tools(write_tools)
+
+        if len(groups) == 1:
+            # Single group: one agent, pre-loaded, no tools needed except write
+            group = groups[0]
+            context = format_group_context(group)
+            instructions = _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE.format(
+                module=mod,
+                group_name=group.name,
+                file_count=len(group.files),
+                token_count=group.total_tokens,
+                file_context=context,
+            )
+            instructions += (
+                "\n\nWhen your analysis is complete, call ``write_module_doc`` "
+                "with the full Markdown document."
+            )
+            agent = Agent(
+                name=f"RefreshModule_{mod}",
+                instructions=instructions,
+                model=model,
+                tools=wrapped_write,
+            )
+            result.append((mod, agent))
+
+        else:
+            # Multiple groups: sub-agents + merge agent
+            sub_agents: list = []
+            for i, group in enumerate(groups):
+                context = format_group_context(group)
+                instructions = _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE.format(
+                    module=mod,
+                    group_name=group.name,
+                    file_count=len(group.files),
+                    token_count=group.total_tokens,
+                    file_context=context,
+                )
+                instructions += (
+                    "\n\nOutput your analysis as Markdown. Do NOT call any tools. "
+                    "Just return your analysis text."
+                )
+                sub_agent = Agent(
+                    name=f"RefreshModule_{mod}_sub{i}_{group.name}",
+                    instructions=instructions,
+                    model=model,
+                )
+                sub_agents.append((group.name, sub_agent))
+
+            # Merge agent will be created dynamically after sub-agents run
+            result.append((mod, sub_agents, wrapped_write))
+
+    return result
+
+
 def build_refresh_git_agent(model: str, workspace: Path):
     """Build the RefreshGitAgent that analyzes git history.
 

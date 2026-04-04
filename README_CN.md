@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP 服务端 → Claude Code 直接调用
 ```
 
-**动态多智能体集群** —— `ag-refresh` 时，每个代码模块动态分配一个 RefreshModuleAgent 自主阅读代码、生成深度知识文档。**RegistryAgent** 随后汇总所有模块知识为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，将问题精准路由到对应 ModuleAgent，Agent 间可跨模块通讯。基于 OpenAI Agent SDK + LiteLLM。
+**动态多智能体集群** —— `ag-refresh` 时，引擎使用**智能功能分组**：基于知识图谱 import 关系、目录共位、文件名前缀将文件聚类。源码直接预加载进 agent 上下文（无需工具调用），构建产物自动过滤。每个 sub-agent 分析约 30K tokens 的聚焦代码，只需 1 次 LLM 调用。**RegistryAgent** 随后汇总所有模块为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，精准路由到对应 ModuleAgent。基于 OpenAI Agent SDK + LiteLLM。
 
 **GitAgent** —— 专门分析 git 历史的 Agent，了解「谁改了什么、为什么改」。
 
@@ -198,7 +198,7 @@ ag-refresh --workspace my-project
 3. 生成 `structure.md` 结构图
 4. 构建知识图谱（`knowledge_graph.json` + mermaid）
 5. 写入文档/数据/媒体索引
-6. **动态创建 RefreshModuleAgent**——每个代码模块一个 Agent，自主阅读代码、生成深度知识文档到 `.antigravity/modules/*.md`
+6. **智能功能分组** —— 基于 import 图 + 目录 + 前缀分组，代码预加载进 context（每组约 30K tokens），自动过滤构建产物（dist、bundle、vendor、编译文件）。每个 sub-agent 用 1 次 LLM 调用完成深度分析。多组模块用 merge agent 合并输出。
 7. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
 8. **RegistryAgent** 读取所有知识产物 → 调用 LLM → 生成 `module_registry.md`（每个模块 2-3 句语义描述，供 Router 做智能路由）
 
@@ -265,16 +265,21 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 引擎的核心是**按代码模块动态创建的 Agent 集群**：
 
 ```
- ag-refresh 时：                          ag-ask 时：
+ ag-refresh（v2 — 智能分组）：              ag-ask 时：
 
- ┌─ RefreshModule_engine ──→ engine.md    Router（读 module_registry.md）
- ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine（已加载 engine.md）
- ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli（已加载 cli.md）
- └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent（已加载 _git.md）
-                                             └──→ Agent 间可互相 handoff
+ 对每个模块：                               Router（读 module_registry.md）
+ ┌ 按 import 图分组文件                       ├──→ Module_engine（已加载 engine.md）
+ ├ 每组预加载约 30K tokens                    ├──→ Module_cli（已加载 cli.md）
+ ├ 自动过滤构建产物                           ├──→ GitAgent（已加载 _git.md）
+ ├ Sub-agent 各用 1 次 LLM 调用分析           └──→ Agent 间可互相 handoff
+ ├ Merge agent 合并输出
+ └─ RegistryAgent ────→ registry.md
 ```
 
-**关键：`module_registry.md`** —— Refresh 时 RegistryAgent 读取所有模块知识，生成每个模块的语义描述。Router 靠这份 registry 做路由——它知道*每个模块负责什么*，而不只是里面有哪些文件。这使得 Router 能正确将"数据库 schema"路由到 `src_storage`，而非靠文件名猜测。
+**核心创新：**
+- **智能分组**：基于知识图谱 import 关系分组，非机械 token 切割。构建产物（dist/、bundle、vendor、编译文件）自动过滤。
+- **预加载上下文**：源码直接注入 agent instructions——零工具调用。之前需要 16 次 LLM 轮次的模块现在只需 1 次。
+- **模块 Registry**：RegistryAgent 汇总每个模块的职责描述。Router 知道*每个模块做什么*，实现精准路由（"数据库 schema" → `src_storage`）。
 
 ```bash
 # 模块 Agent 自主学习代码库

@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP server → Claude Code calls directly
 ```
 
-**Dynamic Multi-Agent Cluster** — During `ag-refresh`, each code module gets a RefreshModuleAgent that autonomously reads the code and generates a deep knowledge doc. A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent. Agents can handoff across modules. Powered by OpenAI Agent SDK + LiteLLM.
+**Dynamic Multi-Agent Cluster** — During `ag-refresh`, the engine uses **smart functional grouping**: files are grouped by import relationships (from the knowledge graph), directory co-location, and filename prefixes. Source code is pre-loaded directly into agent context (no tool calls needed), and build artifacts are automatically filtered out. Each sub-agent analyzes ~30K tokens of focused, functionally related code in a single LLM call. A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent. Powered by OpenAI Agent SDK + LiteLLM.
 
 **GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
@@ -214,7 +214,7 @@ ag-refresh --workspace my-project
 3. Generate `structure.md` structure map
 4. Build knowledge graph (`knowledge_graph.json` + mermaid)
 5. Write document/data/media indexes
-6. **Dynamically create RefreshModuleAgents** — one per code module, each autonomously reads code and writes a deep knowledge doc to `.antigravity/modules/*.md`
+6. **Smart functional grouping** — group files by import graph + directory + prefix, pre-load into context (~30K tokens per sub-agent), filter out build artifacts (dist, bundles, vendor, compiled files). Each sub-agent produces deep analysis in 1 LLM call. Multi-group modules get a merge agent.
 7. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
 8. **RegistryAgent** reads all knowledge artifacts → calls LLM → generates `module_registry.md` (2-3 sentence semantic description per module, used by Router for intelligent routing)
 
@@ -281,16 +281,21 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 The engine's core is **a dynamically created Agent cluster per code module**:
 
 ```
- ag-refresh:                              ag-ask:
+ ag-refresh (v2 — smart grouping):         ag-ask:
 
- ┌─ RefreshModule_engine ──→ engine.md    Router (reads module_registry.md)
- ├─ RefreshModule_cli ────→ cli.md           ├──→ Module_engine (pre-loaded engine.md)
- ├─ RefreshGitAgent ──────→ _git.md          ├──→ Module_cli (pre-loaded cli.md)
- └─ RegistryAgent ────────→ registry.md      ├──→ GitAgent (pre-loaded _git.md)
-                                             └──→ Agents can handoff to each other
+ For each module:                          Router (reads module_registry.md)
+ ┌ Group files by import graph               ├──→ Module_engine (pre-loaded engine.md)
+ ├ Pre-load ~30K tokens per sub-agent        ├──→ Module_cli (pre-loaded cli.md)
+ ├ Filter out build artifacts                ├──→ GitAgent (pre-loaded _git.md)
+ ├ Sub-agents analyze in 1 LLM call each     └──→ Agents can handoff to each other
+ ├ Merge agent combines outputs
+ └─ RegistryAgent ────→ registry.md
 ```
 
-**Key: `module_registry.md`** — During refresh, a RegistryAgent reads all module knowledge and generates a concise semantic description per module. The Router reads this registry to make routing decisions — it knows *what each module is responsible for*, not just what files it contains. This is what enables the Router to correctly route "database schema" → `src_storage` instead of guessing from file names.
+**Key innovations:**
+- **Smart grouping**: Files grouped by knowledge-graph import relationships, not arbitrary token splits. Build artifacts (dist/, bundles, vendor, compiled) automatically filtered out.
+- **Pre-loaded context**: Source code injected directly into agent instructions — zero tool calls needed. A module that previously required 16 LLM turns now needs just 1.
+- **Module registry**: RegistryAgent summarizes each module's responsibilities. Router knows *what each module does*, enabling accurate routing ("database schema" → `src_storage`).
 
 ```bash
 # ModuleAgents self-learn your codebase

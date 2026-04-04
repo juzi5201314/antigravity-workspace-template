@@ -114,11 +114,15 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
         print("[2/3] Analyzing with multi-agent swarm...", file=sys.stderr)
 
         refresh_timeout = float(os.environ.get("AG_REFRESH_AGENT_TIMEOUT_SECONDS", "90"))
-        if refresh_timeout > 0:
-            result = await asyncio.wait_for(Runner.run(agent, prompt), timeout=refresh_timeout)
-        else:
-            result = await Runner.run(agent, prompt)
-        conventions_content = result.final_output
+        try:
+            if refresh_timeout > 0:
+                result = await asyncio.wait_for(Runner.run(agent, prompt), timeout=refresh_timeout)
+            else:
+                result = await Runner.run(agent, prompt)
+            conventions_content = result.final_output
+        except Exception as exc:
+            print(f"  ⚠ Conventions swarm failed: {exc}. Using fallback.", file=sys.stderr)
+            conventions_content = _build_fallback_conventions(report)
     else:
         print("[2/3] Scan-only mode enabled; skipping LLM analysis.", file=sys.stderr)
         conventions_content = _build_fallback_conventions(report)
@@ -162,51 +166,96 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
     if not refresh_scan_only:
         print("[7/8] Module agents learning codebase...", file=sys.stderr)
         from antigravity_engine.hub.agents import (
-            build_refresh_module_swarm,
+            build_refresh_module_swarm_v2,
             build_refresh_git_agent,
+            _REFRESH_MERGE_INSTRUCTIONS,
         )
 
         try:
-            from agents import Runner
+            from agents import Agent, Runner
         except ImportError:
             raise ImportError(
                 "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
             ) from None
 
-        module_agents = build_refresh_module_swarm(model, workspace)
+        module_entries = build_refresh_module_swarm_v2(model, workspace)
         module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
 
-        # In quick mode, only run agents for modules affected by changed files.
-        if quick:
-            affected = _compute_affected_modules(report, [m for m, _ in module_agents])
-            if affected is not None:
-                original_count = len(module_agents)
-                module_agents = [(m, a) for m, a in module_agents if m in affected]
-                print(
-                    f"  Quick mode: {len(module_agents)}/{original_count} modules affected.",
-                    file=sys.stderr,
-                )
-
-        for mod_name, mod_agent in module_agents:
-            print(f"  → RefreshModule_{mod_name} analyzing...", file=sys.stderr)
-            try:
-                if module_timeout > 0:
-                    await asyncio.wait_for(
-                        Runner.run(
+        for entry in module_entries:
+            if len(entry) == 2:
+                # Single agent — just run it (pre-loaded, needs ~1-2 turns)
+                mod_name, mod_agent = entry
+                print(f"  → RefreshModule_{mod_name} (1 group, pre-loaded)...", file=sys.stderr)
+                try:
+                    if module_timeout > 0:
+                        await asyncio.wait_for(
+                            Runner.run(
+                                mod_agent,
+                                "Analyze the pre-loaded source code and write your module knowledge document.",
+                                max_turns=5,
+                            ),
+                            timeout=module_timeout,
+                        )
+                    else:
+                        await Runner.run(
                             mod_agent,
-                            f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
-                            max_turns=25,
-                        ),
-                        timeout=module_timeout,
-                    )
-                else:
-                    await Runner.run(
-                        mod_agent,
-                        f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
-                        max_turns=25,
-                    )
-            except Exception as exc:
-                print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+                            "Analyze the pre-loaded source code and write your module knowledge document.",
+                            max_turns=5,
+                        )
+                except Exception as exc:
+                    print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+
+            elif len(entry) == 3:
+                # Multiple sub-agents + merge
+                mod_name, sub_agents, write_tools = entry
+                print(f"  → RefreshModule_{mod_name} ({len(sub_agents)} groups, pre-loaded)...", file=sys.stderr)
+
+                analyses: list[str] = []
+                for group_name, sub_agent in sub_agents:
+                    print(f"    → sub-agent {group_name}...", file=sys.stderr)
+                    try:
+                        if module_timeout > 0:
+                            result = await asyncio.wait_for(
+                                Runner.run(
+                                    sub_agent,
+                                    "Analyze the pre-loaded source code. Output your analysis as Markdown.",
+                                    max_turns=3,
+                                ),
+                                timeout=module_timeout,
+                            )
+                        else:
+                            result = await Runner.run(
+                                sub_agent,
+                                "Analyze the pre-loaded source code. Output your analysis as Markdown.",
+                                max_turns=3,
+                            )
+                        analyses.append(f"## Group: {group_name}\n\n{result.final_output}")
+                    except Exception as exc:
+                        print(f"    ⚠ sub-agent {group_name} failed: {exc}", file=sys.stderr)
+
+                # Merge sub-agent outputs
+                if analyses:
+                    print(f"    → merging {len(analyses)} analyses...", file=sys.stderr)
+                    try:
+                        from antigravity_engine.hub.agents import _wrap_tools
+                        merge_agent = Agent(
+                            name=f"RefreshModule_{mod_name}_merge",
+                            instructions=_REFRESH_MERGE_INSTRUCTIONS.format(
+                                module=mod_name,
+                                analyses="\n\n---\n\n".join(analyses),
+                            ) + "\n\nCall ``write_module_doc`` with the merged document.",
+                            model=model,
+                            tools=write_tools,
+                        )
+                        if module_timeout > 0:
+                            await asyncio.wait_for(
+                                Runner.run(merge_agent, "Merge and write.", max_turns=3),
+                                timeout=module_timeout,
+                            )
+                        else:
+                            await Runner.run(merge_agent, "Merge and write.", max_turns=3)
+                    except Exception as exc:
+                        print(f"    ⚠ merge failed: {exc}", file=sys.stderr)
 
         print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
         try:
