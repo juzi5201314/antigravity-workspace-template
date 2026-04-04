@@ -4,9 +4,9 @@
 
 # AI Workspace Template
 
-### The missing cognitive layer for AI-powered IDEs.
+### Multi-agent knowledge engine for any codebase.
 
-Dynamic multi-agent cluster. Every AI IDE becomes an expert on your codebase.
+`ag-refresh` builds a knowledge base. `ag-ask` answers questions. Any LLM, any IDE.
 
 Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 
@@ -40,9 +40,9 @@ Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 
 > An AI Agent's capability ceiling = **the quality of context it can read.**
 
-> **Don't give your AI IDE an encyclopedia. Give it a ChatGPT for your codebase.**
+The engine is the core: `ag-refresh` deploys a multi-agent cluster that autonomously reads your code — each module gets its own Agent that generates a knowledge doc. `ag-ask` routes questions to the right Agent, grounded in real code with file paths and line numbers.
 
-Most teams stuff `CLAUDE.md` with documentation nobody reads. Antigravity takes the opposite approach: instead of a static knowledge dump, it deploys a **dynamic multi-agent cluster** — each code module gets its own Agent that autonomously reads code and generates knowledge docs, with a Router that intelligently routes questions to the right Agent.
+**Tested on a real 374-file project with MiniMax2.7 — scored 9/10 on basic Q&A, 9/10 on hallucination resistance.** [See full eval below.](#real-world-eval-minimax27-on-opencmo-374-files-29k-lines)
 
 ```
 Traditional approach:              Antigravity approach:
@@ -64,30 +64,37 @@ Architecture is **files + a live Q&A engine**, not plugins. Portable across any 
 
 ## Quick Start
 
-**Option A — Context files only (any IDE, no LLM needed)**
+**Option A — Engine: multi-agent Q&A on your codebase (recommended)**
 ```bash
-pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-ag init my-project && cd my-project
-# Your IDE now reads .antigravity/rules.md, .cursorrules, CLAUDE.md, AGENTS.md automatically
-```
-
-**Option B — Full setup with multi-agent Q&A engine (recommended for Claude Code)**
-```bash
-# 1. Inject context files
-pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-ag init my-project && cd my-project
-
-# 2. Install the engine
+# 1. Install engine + CLI
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli"
 pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
 
-# 3. Configure .env with your LLM API key, then refresh knowledge base (ModuleAgents self-learn)
-ag-refresh
+# 2. Configure .env with any OpenAI-compatible API key
+cd my-project
+cat > .env <<EOF
+OPENAI_BASE_URL=https://your-endpoint/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+AG_ASK_TIMEOUT_SECONDS=120
+EOF
 
-# 4. Register as MCP server — Claude Code can now call ask_project as a tool
+# 3. Build knowledge base (ModuleAgents self-learn each module)
+ag-refresh --workspace .
+
+# 4. Ask anything
+ag-ask "How does auth work in this project?"
+
+# 5. (Optional) Register as MCP server for Claude Code
 claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 ```
 
-Now when Claude Code needs to understand your codebase, it calls `ask_project("...")` — Router auto-routes to the right ModuleAgent.
+**Option B — Context files only (any IDE, no LLM needed)**
+```bash
+pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
+ag init my-project && cd my-project
+# IDE reads .antigravity/rules.md, .cursorrules, CLAUDE.md, AGENTS.md automatically
+```
 
 ---
 
@@ -365,56 +372,80 @@ See [Sandbox docs](docs/en/SANDBOX.md).
 
 ---
 
-## Real-World Demo: NVIDIA API + Kimi K2.5
+## Real-World Eval: MiniMax2.7 on OpenCMO (374 files, 29K lines)
 
-Tested end-to-end with [Moonshot Kimi K2.5](https://build.nvidia.com/moonshotai/kimi-k2-5) via NVIDIA's free API tier. Any OpenAI-compatible endpoint works the same way.
+Tested end-to-end against the [OpenCMO](https://github.com/study8677/OpenCMO) codebase (Python + React/TS, 374 files) using **MiniMax2.7** via an OpenAI-compatible router.
 
-**1. Configure `.env`**
+### Refresh results
+
+```
+$ ag-refresh --workspace /path/to/OpenCMO
+[1/3] Scanning project... 374 files, 0.02s
+[2/3] Analyzing with multi-agent swarm...
+      conventions.md  ✅ 289 lines
+      structure.md    ✅ 1384 lines
+      knowledge_graph ✅ 540KB JSON + mermaid
+```
+
+### Ask evaluation matrix (18 tests)
+
+| Category | Question | Result | Quality |
+|:---------|:---------|:------:|:-------:|
+| Basic understanding | "What is this project?" | **Pass** | 5/5 — accurate summary with tech details |
+| Tech stack | "What tech stack and frameworks?" | **Pass** | 5/5 — frontend + backend + libs listed |
+| Module listing | "List all main modules" | **Pass** | 5/5 — table format, accurate |
+| API routing | "How does API routing work?" | **Pass** | 5/5 — routes + endpoints + client code |
+| Precise function | "get_model() in llm.py signature" | **Pass** | 5/5 — **100% accurate** file, line, logic |
+| Hallucination test | "Does this support GraphQL?" | **Pass** | 5/5 — correctly said **No** with 4-point evidence |
+| Chinese query | "社区监控支持哪些平台?" | **Pass** | 5/5 — Chinese answer, platform style table |
+| Approval workflow | "How does approval work?" | **Pass** | 5/5 — full state machine with line numbers |
+| Empty/garbage input | "" / "AAAA...×5000" | **Pass** | 4/5 — graceful handling |
+| Complex architecture | "How does multi-agent work?" (120s) | **Pass** | 5/5 — 20 agents listed, comm patterns, diagrams |
+| End-to-end tracing | "Trace create project flow" | **Timeout** | 1/5 — needs >45s |
+| Security analysis | "Security concerns?" | **Timeout** | 1/5 — needs >45s |
+| External comparison | "Compare with Langchain" | **Timeout** | 1/5 — external knowledge required |
+
+### Capability boundary summary
+
+```
+ ✅ Strong (reliable)                    ⚠️ Conditional                     ❌ Weak
+ ─────────────────────                   ──────────────                     ────────
+ Project-level understanding             Complex arch questions             File retrieval accuracy
+ Precise function lookup                 (set TIMEOUT=120 to fix)           Deep ORM/schema inference
+ Hallucination resistance                                                   External knowledge comparison
+ Multi-language (zh/en)                                                     Timeout fallback quality
+ Edge-case handling
+```
+
+### Scores
+
+| Dimension | Score | Notes |
+|:----------|:-----:|:------|
+| Basic Q&A | **9/10** | Project, tech stack, modules — excellent |
+| Code location | **7/10** | Precise queries great; same-name files can confuse |
+| Deep analysis | **4/10** | Timeout-bound; **7/10 at 120s** |
+| Hallucination control | **9/10** | Won't fabricate; gives negative evidence |
+| Multi-language | **9/10** | Chinese Q&A excellent |
+| Robustness | **9/10** | Empty, garbage, action requests all handled |
+| **Overall** | **7/10** | **Daily code Q&A: production-ready. Complex analysis: tune timeout.** |
+
+> Full evaluation report: [`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
+
+### Quick config for best results
 
 ```bash
-OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-OPENAI_API_KEY=nvapi-your-key-here
-OPENAI_MODEL=moonshotai/kimi-k2.5
+# .env — recommended settings after eval
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+
+# The single most impactful tuning: raise ask timeout from 45s to 120s
+AG_ASK_TIMEOUT_SECONDS=120
+AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
+AG_MODULE_AGENT_TIMEOUT_SECONDS=90
 ```
 
-**2. Scan your project**
-
-```bash
-$ ag-refresh --workspace .
-Updated .antigravity/conventions.md
-Updated .antigravity/structure.md
-```
-
-Generated output (by Kimi K2.5):
-```markdown
-# Project Conventions
-## Primary Language & Frameworks
-- **Language**: Python (5,135 files, 99%+ of codebase)
-- **Infrastructure**: Docker, Docker Compose
-- **CI/CD**: GitHub Actions
-...
-```
-
-**3. Ask questions**
-
-```bash
-$ ag-ask "What LLM backends does this project support?"
-Based on the context, the project supports NVIDIA API with Kimi K2.5.
-The architecture uses OpenAI-compatible format, supporting any endpoint
-including local LLMs via LiteLLM, NVIDIA NIM models, etc.
-```
-
-**4. Log decisions (no LLM needed)**
-
-```bash
-$ ag report "Auth module needs refactoring"
-Logged report to .antigravity/memory/reports.md
-
-$ ag log-decision "Use PostgreSQL" "Team has deep expertise"
-Logged decision to .antigravity/decisions/log.md
-```
-
-> Works with any OpenAI-compatible provider: **NVIDIA**, **OpenAI**, **Ollama**, **vLLM**, **LM Studio**, **Groq**, etc.
+> Works with any OpenAI-compatible provider: **NVIDIA**, **OpenAI**, **Ollama**, **vLLM**, **LM Studio**, **Groq**, **MiniMax**, etc.
 
 ---
 

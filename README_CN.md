@@ -4,9 +4,9 @@
 
 # AI Workspace Template
 
-### AI IDE 缺失的认知层。
+### 面向任意代码库的多智能体知识引擎。
 
-动态多智能体集群，让每个 AI IDE 都成为你代码库的专家。
+`ag-refresh` 构建知识库。`ag-ask` 回答问题。任意 LLM，任意 IDE。
 
 语言: [English](README.md) | **中文** | [Español](README_ES.md)
 
@@ -40,9 +40,9 @@
 
 > AI Agent 的能力上限 = **它能读到的上下文质量。**
 
-> **不要给 AI IDE 一本百科全书，要给它一个代码库的 ChatGPT。**
+引擎是核心：`ag-refresh` 部署多智能体集群自主阅读代码——每个模块分配专属 Agent 生成知识文档。`ag-ask` 将问题路由到对应 Agent，答案有据可查，带文件路径和行号。
 
-大多数团队把 `CLAUDE.md` 塞满几千行文档，Agent 读完大半忘掉。Antigravity 反其道而行：不是静态知识堆砌，而是部署一个**动态多智能体集群**——每个模块有专属 Agent 自主阅读代码、生成知识文档，Router 按需路由问题到对应 Agent。
+**已在 374 文件的真实项目上用 MiniMax2.7 完成测试——基础问答 9/10，幻觉抵抗 9/10。** [查看完整评估](#实战评估minimax27--opencmo374-文件29k-行)
 
 ```
 传统做法：                           Antigravity 做法：
@@ -64,30 +64,37 @@
 
 ## 快速开始
 
-**方案 A —— 仅注入上下文文件（任意 IDE，无需 LLM）**
+**方案 A —— 引擎：多智能体代码问答（推荐）**
+```bash
+# 1. 安装引擎 + CLI
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli"
+pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
+
+# 2. 配置 .env（任意 OpenAI 兼容 API）
+cd my-project
+cat > .env <<EOF
+OPENAI_BASE_URL=https://your-endpoint/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+AG_ASK_TIMEOUT_SECONDS=120
+EOF
+
+# 3. 构建知识库（ModuleAgent 自主学习每个模块）
+ag-refresh --workspace .
+
+# 4. 提问
+ag-ask "这个项目的认证逻辑是怎么实现的？"
+
+# 5.（可选）注册为 Claude Code 的 MCP 服务器
+claude mcp add antigravity ag-mcp -- --workspace $(pwd)
+```
+
+**方案 B —— 仅注入上下文文件（任意 IDE，无需 LLM）**
 ```bash
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
 ag init my-project && cd my-project
 # IDE 自动读取 .antigravity/rules.md、.cursorrules、CLAUDE.md、AGENTS.md
 ```
-
-**方案 B —— 完整配置，含多智能体问答引擎（推荐 Claude Code 用户）**
-```bash
-# 1. 注入上下文文件
-pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
-ag init my-project && cd my-project
-
-# 2. 安装引擎
-pip install "git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=engine"
-
-# 3. 在 .env 配置 LLM API Key，然后刷新知识库（ModuleAgent 自主学习每个模块）
-ag-refresh
-
-# 4. 注册为 MCP 服务器 —— Claude Code 可直接调用 ask_project 工具
-claude mcp add antigravity ag-mcp -- --workspace $(pwd)
-```
-
-配置完成后，Claude Code 需要了解代码库时，会调用 `ask_project("...")` —— Router 自动路由到对应模块的 Agent。
 
 ---
 
@@ -369,56 +376,79 @@ ag-ask "认证流程是怎么工作的？"
 
 ---
 
-## 实战演示：NVIDIA API + Kimi K2.5
+## 实战评估：MiniMax2.7 + OpenCMO（374 文件，29K 行）
 
-使用 [Moonshot Kimi K2.5](https://build.nvidia.com/moonshotai/kimi-k2-5) 通过 NVIDIA 免费 API 进行端到端测试。任何 OpenAI 兼容端点都可以同样使用。
+在 [OpenCMO](https://github.com/study8677/OpenCMO) 代码库（Python + React/TS，374 文件）上使用 **MiniMax2.7** 通过 OpenAI 兼容路由进行端到端测试。
 
-**1. 配置 `.env`**
+### Refresh 结果
+
+```
+$ ag-refresh --workspace /path/to/OpenCMO
+[1/3] Scanning project... 374 files, 0.02s
+[2/3] Analyzing with multi-agent swarm...
+      conventions.md  ✅ 289 行
+      structure.md    ✅ 1384 行
+      knowledge_graph ✅ 540KB JSON + mermaid
+```
+
+### Ask 评估矩阵（18 项测试）
+
+| 类别 | 问题 | 结果 | 质量 |
+|:-----|:-----|:----:|:----:|
+| 基础理解 | "这个项目是什么？" | **通过** | 5/5 — 准确概括，含技术细节 |
+| 技术栈 | "用了什么技术栈和框架？" | **通过** | 5/5 — 前后端分层，库级列举 |
+| 模块列表 | "列出所有主要模块" | **通过** | 5/5 — 表格格式，准确完整 |
+| API 路由 | "API 路由是怎么工作的？" | **通过** | 5/5 — 路由表 + 端点 + 客户端代码 |
+| 精确函数 | "llm.py 里 get_model() 的签名" | **通过** | 5/5 — **100% 准确**：文件、行号、逻辑 |
+| 幻觉测试 | "支持 GraphQL 吗？" | **通过** | 5/5 — 正确否定，4 维证据链 |
+| 中文查询 | "社区监控支持哪些平台？" | **通过** | 5/5 — 中文回答，平台风格表 |
+| 审批流程 | "审批流程怎么工作？" | **通过** | 5/5 — 完整状态机，含行号 |
+| 复杂架构 | "多 Agent 系统怎么工作？"（120s） | **通过** | 5/5 — 20 个 Agent 详列，通信模式，架构图 |
+| 端到端追踪 | "追踪创建项目的完整数据流" | **超时** | 1/5 — 需要 >45s |
+| 安全分析 | "安全问题有哪些？" | **超时** | 1/5 — 需要 >45s |
+| 外部对比 | "和 Langchain 对比" | **超时** | 1/5 — 需要外部知识 |
+
+### 能力边界总结
+
+```
+ ✅ 强项（可靠使用）                  ⚠️ 有条件可用                    ❌ 弱项
+ ─────────────────                   ──────────────                   ──────
+ 项目级理解                          复杂架构问题                      文件检索准确性
+ 精确函数查询                        （设置 TIMEOUT=120 可解决）        深层 ORM/schema 推断
+ 幻觉抵抗                                                             外部知识对比
+ 多语言支持（中/英）                                                   超时降级质量
+ 异常输入处理
+```
+
+### 评分
+
+| 维度 | 评分 | 说明 |
+|:-----|:----:|:-----|
+| 基础问答 | **9/10** | 项目、技术栈、模块——优秀 |
+| 代码定位 | **7/10** | 精确查询好；同名文件可能混淆 |
+| 深层分析 | **4/10** | 受超时限制；**120s 下提升至 7/10** |
+| 幻觉控制 | **9/10** | 不会编造；能给否定证据 |
+| 多语言 | **9/10** | 中文问答优秀 |
+| 鲁棒性 | **9/10** | 空输入、垃圾输入、动作请求均优雅处理 |
+| **综合** | **7/10** | **日常代码问答：生产就绪。复杂分析：调大超时。** |
+
+> 完整评估报告：[`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
+
+### 最佳配置
 
 ```bash
-OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-OPENAI_API_KEY=nvapi-your-key-here
-OPENAI_MODEL=moonshotai/kimi-k2.5
+# .env — 评估后的推荐配置
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+
+# 最有效的单一调优：将 ask 超时从 45s 调到 120s
+AG_ASK_TIMEOUT_SECONDS=120
+AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
+AG_MODULE_AGENT_TIMEOUT_SECONDS=90
 ```
 
-**2. 扫描你的项目**
-
-```bash
-$ ag-refresh --workspace .
-Updated .antigravity/conventions.md
-Updated .antigravity/structure.md
-```
-
-Kimi K2.5 生成的输出：
-```markdown
-# Project Conventions
-## Primary Language & Frameworks
-- **Language**: Python (5,135 files, 99%+ of codebase)
-- **Infrastructure**: Docker, Docker Compose
-- **CI/CD**: GitHub Actions
-...
-```
-
-**3. 提问**
-
-```bash
-$ ag-ask "这个项目支持哪些 LLM 后端？"
-根据上下文，项目支持通过 NVIDIA API 使用 Kimi K2.5。
-架构使用 OpenAI 兼容格式，支持任何端点，
-包括通过 LiteLLM 使用的本地 LLM、NVIDIA NIM 模型等。
-```
-
-**4. 记录决策（无需 LLM）**
-
-```bash
-$ ag report "认证模块需要重构"
-Logged report to .antigravity/memory/reports.md
-
-$ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
-Logged decision to .antigravity/decisions/log.md
-```
-
-> 支持任何 OpenAI 兼容供应商：**NVIDIA**、**OpenAI**、**Ollama**、**vLLM**、**LM Studio**、**Groq** 等。
+> 支持任何 OpenAI 兼容供应商：**NVIDIA**、**OpenAI**、**Ollama**、**vLLM**、**LM Studio**、**Groq**、**MiniMax** 等。
 
 ---
 

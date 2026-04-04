@@ -195,6 +195,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                         Runner.run(
                             mod_agent,
                             f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
+                            max_turns=25,
                         ),
                         timeout=module_timeout,
                     )
@@ -202,6 +203,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                     await Runner.run(
                         mod_agent,
                         f"Analyze the '{mod_name}' module thoroughly and write your knowledge document.",
+                        max_turns=25,
                     )
             except Exception as exc:
                 print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
@@ -214,6 +216,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                     Runner.run(
                         git_agent,
                         "Analyze the project's git history and write your git insights document.",
+                        max_turns=25,
                     ),
                     timeout=module_timeout,
                 )
@@ -221,6 +224,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                 await Runner.run(
                     git_agent,
                     "Analyze the project's git history and write your git insights document.",
+                    max_turns=25,
                 )
         except Exception as exc:
             print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)

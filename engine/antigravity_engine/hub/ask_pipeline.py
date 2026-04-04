@@ -345,7 +345,11 @@ def _extract_identifiers(question: str) -> list[str]:
 
 
 def _find_function_defs(workspace: Path, identifiers: list[str]) -> list[dict[str, object]]:
-    """Find function definitions matching identifiers."""
+    """Find function definitions matching identifiers.
+
+    Results are prioritized: matches in files whose stem contains an
+    identifier are ranked first (the actual module, not a wrapper).
+    """
     targets = {x.lower() for x in identifiers}
     matches: list[dict[str, object]] = []
     for fpath in _iter_python_files(workspace):
@@ -355,6 +359,11 @@ def _find_function_defs(workspace: Path, identifiers: list[str]) -> list[dict[st
             lines = source.splitlines()
         except Exception:
             continue
+
+        rel = str(fpath.relative_to(workspace))
+        stem = fpath.stem.lower()
+        # Boost: file stem contains one of the target identifiers
+        file_match = any(t in stem for t in targets)
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -367,12 +376,19 @@ def _find_function_defs(workspace: Path, identifiers: list[str]) -> list[dict[st
                 matches.append(
                     {
                         "name": name,
-                        "file": str(fpath.relative_to(workspace)),
+                        "file": rel,
                         "start": start,
                         "end": end,
                         "snippet": snippet,
+                        "_file_match": file_match,
                     }
                 )
+
+    # Sort: file-name matches first, then by path length (shorter = less nested)
+    matches.sort(key=lambda m: (not m.get("_file_match", False), len(str(m.get("file", "")))))
+    # Clean internal key before returning
+    for m in matches:
+        m.pop("_file_match", None)
     return matches[:6]
 
 
@@ -552,44 +568,95 @@ def _build_retrieval_semantic_answer(workspace: Path, question: str) -> str | No
 
 
 def _build_timeout_fallback_answer(workspace: Path, question: str) -> str:
-    """Return deterministic retrieval output when ask agent times out."""
+    """Return relevant knowledge snippets when ask agent times out."""
     ag_dir = workspace / ".antigravity"
-    scan_report = ag_dir / "scan_report.json"
-    structure = ag_dir / "structure.md"
+    q_lower = question.lower()
+    keywords = [w for w in re.split(r"\W+", q_lower) if len(w) > 2]
 
     lines: list[str] = [
-        "LLM answering timed out, but retrieval results are available:",
-        f"- Question: {question}",
+        "LLM answering timed out. Here are the most relevant knowledge snippets:\n",
+        f"**Question:** {question}\n",
     ]
 
-    if scan_report.exists():
+    # -- Extract relevant sections from conventions.md --
+    conventions = ag_dir / "conventions.md"
+    if conventions.exists():
+        try:
+            text = conventions.read_text(encoding="utf-8")
+            relevant = _extract_relevant_sections(text, keywords, max_chars=6000)
+            if relevant:
+                lines.append("## Project Conventions (relevant excerpts)\n")
+                lines.append(relevant)
+                lines.append("")
+        except Exception:
+            pass
+
+    # -- Extract relevant sections from structure.md --
+    structure = ag_dir / "structure.md"
+    if structure.exists():
+        try:
+            text = structure.read_text(encoding="utf-8")
+            relevant = _extract_relevant_sections(text, keywords, max_chars=8000)
+            if relevant:
+                lines.append("## Code Structure (relevant excerpts)\n")
+                lines.append(relevant)
+                lines.append("")
+        except Exception:
+            pass
+
+    # -- Extract from knowledge_graph.md --
+    kg = ag_dir / "knowledge_graph.md"
+    if kg.exists():
+        try:
+            text = kg.read_text(encoding="utf-8")
+            relevant = _extract_relevant_sections(text, keywords, max_chars=3000)
+            if relevant:
+                lines.append("## Knowledge Graph (relevant excerpts)\n")
+                lines.append(relevant)
+                lines.append("")
+        except Exception:
+            pass
+
+    # -- Fallback: scan report summary --
+    scan_report = ag_dir / "scan_report.json"
+    if scan_report.exists() and len(lines) <= 4:
         try:
             payload = json.loads(scan_report.read_text(encoding="utf-8"))
-            summary = payload.get("summary", {}) if isinstance(payload, dict) else {}
-            file_count = 0
-            scan_elapsed = 0.0
-            timed_out = False
-            if isinstance(summary, dict) and summary:
-                file_count = int(summary.get("file_count", 0))
-                scan_elapsed = float(summary.get("scan_elapsed_seconds", 0.0))
-                timed_out = bool(summary.get("timed_out", False))
-            elif isinstance(payload, dict):
-                file_count = int(payload.get("file_count", 0))
-                scan_elapsed = float(payload.get("scan_elapsed_seconds", 0.0))
-                timed_out = bool(payload.get("timed_out", False))
-            samples = payload.get("scanned_file_samples", []) if isinstance(payload, dict) else []
-            lines.append(f"- Scan files: {file_count}")
-            lines.append(f"- Scan elapsed: {scan_elapsed}s")
-            lines.append(f"- Timed out: {timed_out}")
-            if isinstance(samples, list) and samples:
-                lines.append("- Retrieved file samples:")
-                lines.extend([f"  - {p}" for p in samples[:20]])
+            file_count = int(payload.get("file_count", 0)) if isinstance(payload, dict) else 0
+            lines.append(f"*(Project has {file_count} files. Try rephrasing with a more specific question.)*")
         except Exception:
-            lines.append(f"- Retrieval artifact exists: {scan_report}")
-    else:
-        lines.append("- scan_report.json not found; run ag-refresh first.")
+            pass
 
-    if structure.exists():
-        lines.append(f"- Structure file: {structure}")
+    if len(lines) <= 4:
+        lines.append("No relevant knowledge found. Try running `ag refresh` to rebuild the knowledge base.")
 
     return "\n".join(lines)
+
+
+def _extract_relevant_sections(text: str, keywords: list[str], max_chars: int = 6000) -> str:
+    """Extract sections from markdown text that match keywords."""
+    if not keywords:
+        return text[:max_chars]
+
+    sections = re.split(r"(?=^#{1,3}\s)", text, flags=re.MULTILINE)
+    scored: list[tuple[int, str]] = []
+    for section in sections:
+        section_lower = section.lower()
+        score = sum(1 for kw in keywords if kw in section_lower)
+        if score > 0:
+            scored.append((score, section.strip()))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    result: list[str] = []
+    total = 0
+    for _score, section in scored:
+        if total + len(section) > max_chars:
+            remaining = max_chars - total
+            if remaining > 200:
+                result.append(section[:remaining] + "\n...")
+            break
+        result.append(section)
+        total += len(section)
+
+    return "\n\n".join(result)
