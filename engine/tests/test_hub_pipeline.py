@@ -50,6 +50,9 @@ async def test_refresh_pipeline_creates_conventions(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
 
+    from antigravity_engine.config import reset_settings
+    reset_settings()
+
     ag_dir = tmp_path / ".antigravity"
     ag_dir.mkdir()
 
@@ -85,6 +88,9 @@ async def test_ask_pipeline_returns_answer(tmp_path: Path, monkeypatch) -> None:
     """ask_pipeline returns an answer string."""
     monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+
+    from antigravity_engine.config import reset_settings
+    reset_settings()
 
     ag_dir = tmp_path / ".antigravity"
     ag_dir.mkdir()
