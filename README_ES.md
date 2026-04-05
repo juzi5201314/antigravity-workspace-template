@@ -363,88 +363,9 @@ Ver [docs Sandbox](docs/es/SANDBOX.md).
 
 ---
 
-## Evaluación Real: MiniMax2.7 en OpenCMO (374 archivos, 29K líneas)
-
-Evaluado end-to-end contra el codebase [OpenCMO](https://github.com/study8677/OpenCMO) (Python + React/TS, 374 archivos) usando **MiniMax2.7** via un router compatible con OpenAI.
-
-### Resultados de Refresh
-
-```
-$ ag-refresh --workspace /path/to/OpenCMO
-[1/3] Scanning project... 374 files, 0.02s
-[2/3] Analyzing with multi-agent swarm...
-      conventions.md    ✅ 289 líneas
-      structure.md      ✅ 1384 líneas
-      knowledge_graph   ✅ 540KB JSON + mermaid
-[8/8] Generating module registry...
-      module_registry   ✅ 9 módulos con descripciones semánticas
-```
-
-### Matriz de evaluación Ask (18 tests)
-
-| Categoría | Pregunta | Resultado | Calidad |
-|:----------|:---------|:---------:|:-------:|
-| Comprensión básica | "¿Qué es este proyecto?" | **OK** | 5/5 — resumen preciso con detalles técnicos |
-| Stack técnico | "¿Qué stack y frameworks usa?" | **OK** | 5/5 — frontend + backend + libs listados |
-| Lista de módulos | "Lista todos los módulos principales" | **OK** | 5/5 — formato tabla, preciso |
-| Rutas API | "¿Cómo funciona el routing de API?" | **OK** | 5/5 — rutas + endpoints + código cliente |
-| Función precisa | "firma de get_model() en llm.py" | **OK** | 5/5 — **100% preciso**: archivo, línea, lógica |
-| Test de alucinación | "¿Soporta GraphQL?" | **OK** | 5/5 — correctamente dijo **No** con 4 evidencias |
-| Consulta en chino | "社区监控支持哪些平台?" | **OK** | 5/5 — respuesta en chino, tabla de plataformas |
-| Esquema de BD | "Lista todas las tablas" | **OK** | 5/5 — 34 tablas listadas con archivo fuente (registry enrutó a src_storage) |
-| Flujo de aprobación | "¿Cómo funciona la aprobación?" | **OK** | 5/5 — máquina de estados completa con números de línea |
-| Arquitectura compleja | "¿Cómo funciona el sistema multi-agente?" (120s) | **OK** | 5/5 — 20 agentes listados, patrones de comunicación |
-| Tracing end-to-end | "Traza el flujo de crear proyecto" | **Timeout** | 1/5 — necesita >45s |
-| Análisis de seguridad | "¿Problemas de seguridad?" | **Timeout** | 1/5 — necesita >45s |
-| Comparación externa | "Compara con Langchain" | **Timeout** | 1/5 — requiere conocimiento externo |
-
-### Resumen de capacidades
-
-```
- ✅ Fuerte (fiable)                     ⚠️ Condicional                   ❌ Débil
- ─────────────────                      ─────────────                    ──────
- Comprensión a nivel proyecto           Preguntas de arquitectura        Precisión de localización
- Búsqueda precisa de funciones          compleja (fijar TIMEOUT=120)     Inferencia profunda ORM/schema
- Resistencia a alucinaciones                                             Comparación con conocimiento externo
- Multi-idioma (zh/en)
- Manejo de edge-cases
-```
-
-### Puntuaciones
-
-| Dimensión | Puntuación | Notas |
-|:----------|:----------:|:------|
-| Q&A básico | **9/10** | Proyecto, stack, módulos — excelente |
-| Localización de código | **7/10** | Consultas precisas excelentes; archivos homónimos pueden confundir |
-| Análisis profundo | **4/10** | Limitado por timeout; **7/10 a 120s** |
-| Control de alucinaciones | **9/10** | No fabrica; da evidencia negativa |
-| Multi-idioma | **9/10** | Q&A en chino excelente |
-| Robustez | **9/10** | Inputs vacíos, basura, peticiones de acción — todo manejado |
-| **Global** | **7/10** | **Q&A diario: listo para producción. Análisis complejo: ajustar timeout.** |
-
-> Informe de evaluación completo: [`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
-
-### Configuración óptima
-
-```bash
-# .env — configuración recomendada post-evaluación
-OPENAI_BASE_URL=https://tu-endpoint-compatible-openai/v1
-OPENAI_API_KEY=tu-key
-OPENAI_MODEL=tu-modelo
-
-# El ajuste más impactante: subir timeout de ask de 45s a 120s
-AG_ASK_TIMEOUT_SECONDS=120
-AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
-AG_MODULE_AGENT_TIMEOUT_SECONDS=90
-```
-
-> Funciona con cualquier proveedor compatible con OpenAI: **NVIDIA**, **OpenAI**, **Ollama**, **vLLM**, **LM Studio**, **Groq**, **MiniMax**, etc.
-
----
-
 ## Eval a gran escala: MiniMax2.7 en OpenClaw (12K archivos, 348K stars)
 
-Probado contra [OpenClaw](https://github.com/openclaw/openclaw) — el asistente IA open-source más popular (TypeScript + Swift + Kotlin, 12,133 archivos) — usando la misma API gratuita **MiniMax2.7**.
+Probado contra [OpenClaw](https://github.com/openclaw/openclaw) — el asistente IA open-source más popular (TypeScript + Swift + Kotlin, 12,133 archivos) — usando la API gratuita **MiniMax2.7**.
 
 ### Resultados de Refresh
 
@@ -487,6 +408,51 @@ Tiempo total: 42m52s | 111 docs de módulo | 1.5MB base de conocimiento
 | Calidad Q&A por módulo | 7/10 | **10/10** | Auto-split = conocimiento enfocado |
 
 > **Optimización clave:** Módulos grandes (extensions/ con 262 grupos, src/ con 363 grupos) se dividen automáticamente en sub-módulos independientes, todos ejecutados en paralelo (concurrencia 8). El refresh de OpenClaw pasó de **5+ horas (nunca terminó)** a **43 minutos (completado)**.
+
+### Configuración óptima
+
+```bash
+# .env — configuración recomendada post-evaluación
+OPENAI_BASE_URL=https://tu-endpoint-compatible-openai/v1
+OPENAI_API_KEY=tu-key
+OPENAI_MODEL=tu-modelo
+
+AG_ASK_TIMEOUT_SECONDS=120
+AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
+AG_MODULE_AGENT_TIMEOUT_SECONDS=90
+```
+
+> Funciona con cualquier proveedor compatible con OpenAI: **NVIDIA**, **OpenAI**, **Ollama**, **vLLM**, **LM Studio**, **Groq**, **MiniMax**, etc.
+
+---
+
+<details>
+<summary><b>Evaluación anterior: MiniMax2.7 en OpenCMO (374 archivos, 29K líneas)</b></summary>
+
+Evaluado contra [OpenCMO](https://github.com/study8677/OpenCMO) (Python + React/TS, 374 archivos) usando **MiniMax2.7**.
+
+### Matriz de evaluación Ask (18 tests)
+
+| Categoría | Pregunta | Resultado | Calidad |
+|:----------|:---------|:---------:|:-------:|
+| Comprensión básica | "¿Qué es este proyecto?" | **OK** | 5/5 — resumen preciso |
+| Función precisa | "firma de get_model() en llm.py" | **OK** | 5/5 — **100% preciso** |
+| Test de alucinación | "¿Soporta GraphQL?" | **OK** | 5/5 — correctamente dijo **No** |
+| Esquema de BD | "Lista todas las tablas" | **OK** | 5/5 — 34 tablas listadas |
+| Flujo de aprobación | "¿Cómo funciona la aprobación?" | **OK** | 5/5 — máquina de estados completa |
+| Arquitectura compleja | "¿Cómo funciona multi-agente?" | **OK** | 5/5 — 20 agentes listados |
+
+### Puntuaciones
+
+| Dimensión | Puntuación | Notas |
+|:----------|:----------:|:------|
+| Q&A básico | **9/10** | Proyecto, stack, módulos — excelente |
+| Control de alucinaciones | **9/10** | No fabrica; da evidencia negativa |
+| **Global** | **7/10** | **Q&A diario: listo para producción** |
+
+> Informe completo: [`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
+
+</details>
 
 ---
 

@@ -386,88 +386,9 @@ ag-ask "认证流程是怎么工作的？"
 
 ---
 
-## 实战评估：MiniMax2.7 + OpenCMO（374 文件，29K 行）
-
-在 [OpenCMO](https://github.com/study8677/OpenCMO) 代码库（Python + React/TS，374 文件）上使用 **MiniMax2.7** 通过 OpenAI 兼容路由进行端到端测试。
-
-### Refresh 结果
-
-```
-$ ag-refresh --workspace /path/to/OpenCMO
-[1/3] Scanning project... 374 files, 0.02s
-[2/3] Analyzing with multi-agent swarm...
-      conventions.md    ✅ 289 行
-      structure.md      ✅ 1384 行
-      knowledge_graph   ✅ 540KB JSON + mermaid
-[8/8] Generating module registry...
-      module_registry   ✅ 9 个模块语义描述
-```
-
-### Ask 评估矩阵（18 项测试）
-
-| 类别 | 问题 | 结果 | 质量 |
-|:-----|:-----|:----:|:----:|
-| 基础理解 | "这个项目是什么？" | **通过** | 5/5 — 准确概括，含技术细节 |
-| 技术栈 | "用了什么技术栈和框架？" | **通过** | 5/5 — 前后端分层，库级列举 |
-| 模块列表 | "列出所有主要模块" | **通过** | 5/5 — 表格格式，准确完整 |
-| API 路由 | "API 路由是怎么工作的？" | **通过** | 5/5 — 路由表 + 端点 + 客户端代码 |
-| 精确函数 | "llm.py 里 get_model() 的签名" | **通过** | 5/5 — **100% 准确**：文件、行号、逻辑 |
-| 幻觉测试 | "支持 GraphQL 吗？" | **通过** | 5/5 — 正确否定，4 维证据链 |
-| 中文查询 | "社区监控支持哪些平台？" | **通过** | 5/5 — 中文回答，平台风格表 |
-| 数据库 Schema | "列出所有数据库表" | **通过** | 5/5 — 34 张表全列出，含源文件（registry 路由到 src_storage）|
-| 审批流程 | "审批流程怎么工作？" | **通过** | 5/5 — 完整状态机，含行号 |
-| 复杂架构 | "多 Agent 系统怎么工作？"（120s） | **通过** | 5/5 — 20 个 Agent 详列，通信模式，架构图 |
-| 端到端追踪 | "追踪创建项目的完整数据流" | **超时** | 1/5 — 需要 >45s |
-| 安全分析 | "安全问题有哪些？" | **超时** | 1/5 — 需要 >45s |
-| 外部对比 | "和 Langchain 对比" | **超时** | 1/5 — 需要外部知识 |
-
-### 能力边界总结
-
-```
- ✅ 强项（可靠使用）                  ⚠️ 有条件可用                    ❌ 弱项
- ─────────────────                   ──────────────                   ──────
- 项目级理解                          复杂架构问题                      文件检索准确性
- 精确函数查询                        （设置 TIMEOUT=120 可解决）        深层 ORM/schema 推断
- 幻觉抵抗                                                             外部知识对比
- 多语言支持（中/英）                                                   超时降级质量
- 异常输入处理
-```
-
-### 评分
-
-| 维度 | 评分 | 说明 |
-|:-----|:----:|:-----|
-| 基础问答 | **9/10** | 项目、技术栈、模块——优秀 |
-| 代码定位 | **7/10** | 精确查询好；同名文件可能混淆 |
-| 深层分析 | **4/10** | 受超时限制；**120s 下提升至 7/10** |
-| 幻觉控制 | **9/10** | 不会编造；能给否定证据 |
-| 多语言 | **9/10** | 中文问答优秀 |
-| 鲁棒性 | **9/10** | 空输入、垃圾输入、动作请求均优雅处理 |
-| **综合** | **7/10** | **日常代码问答：生产就绪。复杂分析：调大超时。** |
-
-> 完整评估报告：[`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
-
-### 最佳配置
-
-```bash
-# .env — 评估后的推荐配置
-OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
-OPENAI_API_KEY=your-key
-OPENAI_MODEL=your-model
-
-# 最有效的单一调优：将 ask 超时从 45s 调到 120s
-AG_ASK_TIMEOUT_SECONDS=120
-AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
-AG_MODULE_AGENT_TIMEOUT_SECONDS=90
-```
-
-> 支持任何 OpenAI 兼容供应商：**NVIDIA**、**OpenAI**、**Ollama**、**vLLM**、**LM Studio**、**Groq**、**MiniMax** 等。
-
----
-
 ## 大规模评估：MiniMax2.7 + OpenClaw（12K 文件，34.8 万 Star）
 
-在 [OpenClaw](https://github.com/openclaw/openclaw) 上测试 —— 最热门的开源 AI 助手（TypeScript + Swift + Kotlin，12,133 文件）—— 使用同一个 **MiniMax2.7** 免费 API。
+在 [OpenClaw](https://github.com/openclaw/openclaw) 上测试 —— 最热门的开源 AI 助手（TypeScript + Swift + Kotlin，12,133 文件）—— 使用 **MiniMax2.7** 免费 API。
 
 ### Refresh 结果
 
@@ -510,6 +431,51 @@ $ ag-refresh --workspace /path/to/openclaw
 | 模块问答质量 | 7/10 | **10/10** | 自动拆分 = 聚焦知识 |
 
 > **关键优化：** 大模块（extensions/ 262 组、src/ 363 组）自动拆分为独立子模块，所有模块 8 并发执行。OpenClaw 的 refresh 从 **5 小时+未完成** 降至 **43 分钟完成**。
+
+### 最佳配置
+
+```bash
+# .env — 评估后的推荐配置
+OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+OPENAI_API_KEY=your-key
+OPENAI_MODEL=your-model
+
+AG_ASK_TIMEOUT_SECONDS=120
+AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
+AG_MODULE_AGENT_TIMEOUT_SECONDS=90
+```
+
+> 支持任何 OpenAI 兼容供应商：**NVIDIA**、**OpenAI**、**Ollama**、**vLLM**、**LM Studio**、**Groq**、**MiniMax** 等。
+
+---
+
+<details>
+<summary><b>早期评估：MiniMax2.7 + OpenCMO（374 文件，29K 行）</b></summary>
+
+在 [OpenCMO](https://github.com/study8677/OpenCMO) 代码库（Python + React/TS，374 文件）上使用 **MiniMax2.7** 测试。
+
+### Ask 评估矩阵（18 项测试）
+
+| 类别 | 问题 | 结果 | 质量 |
+|:-----|:-----|:----:|:----:|
+| 基础理解 | "这个项目是什么？" | **通过** | 5/5 — 准确概括 |
+| 精确函数 | "llm.py 里 get_model() 的签名" | **通过** | 5/5 — **100% 准确** |
+| 幻觉测试 | "支持 GraphQL 吗？" | **通过** | 5/5 — 正确否定，4 维证据链 |
+| 数据库 Schema | "列出所有数据库表" | **通过** | 5/5 — 34 张表全列出 |
+| 审批流程 | "审批流程怎么工作？" | **通过** | 5/5 — 完整状态机，含行号 |
+| 复杂架构 | "多 Agent 系统怎么工作？" | **通过** | 5/5 — 20 个 Agent 详列 |
+
+### 评分
+
+| 维度 | 评分 | 说明 |
+|:-----|:----:|:-----|
+| 基础问答 | **9/10** | 项目、技术栈、模块——优秀 |
+| 幻觉控制 | **9/10** | 不会编造；能给否定证据 |
+| **综合** | **7/10** | **日常代码问答：生产就绪** |
+
+> 完整评估报告：[`artifacts/plan_20260404_opencmo_ask_boundary_eval.md`](artifacts/plan_20260404_opencmo_ask_boundary_eval.md)
+
+</details>
 
 ---
 
