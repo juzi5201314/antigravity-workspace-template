@@ -42,7 +42,7 @@
 
 引擎是核心：`ag-refresh` 部署多智能体集群自主阅读代码——每个模块分配专属 Agent 生成知识文档。`ag-ask` 将问题路由到对应 Agent，答案有据可查，带文件路径和行号。
 
-**已在 374 文件的真实项目上用 MiniMax2.7 完成测试——基础问答 9/10，幻觉抵抗 9/10。** [查看完整评估](#实战评估minimax27--opencmo374-文件29k-行)
+**已在 [OpenClaw](https://github.com/openclaw/openclaw)（12K 文件，34.8 万 Star）上用 MiniMax2.7 测试——模块问答 10/10，111 个模块 43 分钟自学完成。** [查看完整评估](#大规模评估minimax27--openclaw12k-文件348-万-star)
 
 ```
 传统做法：                           Antigravity 做法：

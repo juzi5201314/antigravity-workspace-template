@@ -42,7 +42,7 @@ Idioma: [English](README.md) | [中文](README_CN.md) | **Español**
 
 El motor es el núcleo: `ag-refresh` despliega un clúster multi-agente que lee tu código autónomamente — cada módulo obtiene su propio Agent que genera documentación de conocimiento. `ag-ask` enruta preguntas al Agent correcto, con respuestas basadas en código real con rutas de archivo y números de línea.
 
-**Evaluado en un proyecto real de 374 archivos con MiniMax2.7 — Q&A básico 9/10, resistencia a alucinaciones 9/10.** [Ver evaluación completa.](#evaluación-real-minimax27-en-opencmo-374-archivos-29k-líneas)
+**Evaluado en [OpenClaw](https://github.com/openclaw/openclaw) (12K archivos, 348K stars) con MiniMax2.7 — Q&A por módulo 10/10, 111 módulos auto-aprendidos en 43 minutos.** [Ver evaluación completa.](#eval-a-gran-escala-minimax27-en-openclaw-12k-archivos-348k-stars)
 
 ```
 Enfoque tradicional:                    Enfoque Antigravity:
