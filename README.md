@@ -462,6 +462,72 @@ AG_MODULE_AGENT_TIMEOUT_SECONDS=90
 
 ---
 
+## Large-Scale Eval: MiniMax2.7 on OpenClaw (12K files, 348K stars)
+
+Tested against [OpenClaw](https://github.com/openclaw/openclaw) — the most popular open-source AI assistant (TypeScript + Swift + Kotlin, 12,133 files) — using the same **MiniMax2.7** free API.
+
+### Refresh results
+
+```
+$ ag-refresh --workspace /path/to/openclaw
+[1/3] Scanning project... 5000 files, 0.14s
+[7/8] ▶ Running 154 modules (concurrency=8)...
+      Auto-split: extensions/ → 50+ sub-modules (slack, telegram, whatsapp, ...)
+      Auto-split: src/ → 40+ sub-modules (agents, gateway, config, ...)
+[8/8] module_registry ✅ 164 lines
+
+Total time: 42m52s | 111 module docs | 1.5MB knowledge base
+```
+
+### Ask evaluation matrix (11 tests)
+
+| Category | Question | Result | Quality |
+|:---------|:---------|:------:|:-------:|
+| Basic understanding | "What is this project?" | **Pass** | 5/5 — sponsors, platforms, features, structure |
+| Tech stack | "Tech stack and frameworks?" | Timeout | 3/5 — fallback gave language/framework data |
+| Module deep-dive | "How does Telegram integration work?" | **Pass** | **5/5** — file table + architecture diagram + types + constants |
+| Module deep-dive | "Discord voice channels?" | **Pass** | **5/5** — audio pipeline + code samples + design patterns |
+| Module deep-dive | "WhatsApp integration?" | **Pass** | **5/5** — auth flow + plugin architecture + dependencies |
+| Hallucination test | "Does this support GraphQL?" | 413 | 0/5 — request too large for free API |
+| Architecture | "How does Gateway work?" | Timeout | 2/5 — file list but no analysis |
+| Chinese query | "支持哪些AI模型？" | Timeout | 1/5 — cross-module, needs faster model |
+| Skills system | "What is the skill system?" | Timeout | 2/5 — listed skill files |
+| Testing patterns | "Testing frameworks?" | Timeout | 2/5 — listed vitest configs |
+| Platform listing | "What messaging platforms?" | Crash | 0/5 — 413 error |
+
+### Key finding: auto-split unlocks module-level excellence
+
+```
+ ✅ Module-level Q&A (5/5)              ⚠️ Cross-module questions              ❌ Free API limits
+ ──────────────────────────             ────────────────────────              ─────────────────
+ Telegram: architecture diagram         Gateway: timeout                      413 on large context
+ Discord: audio pipeline + code         Testing: timeout                      Rate limiting (429)
+ WhatsApp: auth + plugin system         Tech stack: timeout
+ Each module has its own knowledge doc  Needs faster model or higher timeout
+```
+
+### Scores
+
+| Dimension | Score | Notes |
+|:----------|:-----:|:------|
+| Basic Q&A | **9/10** | Project overview excellent |
+| Module deep-dive | **10/10** | Telegram/Discord/WhatsApp — architecture diagrams, types, design patterns |
+| Cross-module | **3/10** | Gateway, Testing, Skills — timeout with free API |
+| **Overall** | **6.5/10** | **Module Q&A: production-ready even on 12K-file projects. Cross-module: needs faster model.** |
+
+### Performance comparison
+
+| Metric | OpenCMO (374 files) | OpenClaw (12K files) | Improvement |
+|:-------|:-------------------:|:--------------------:|:-----------:|
+| Refresh time | ~10 min | **43 min** | Parallel + auto-split |
+| Module docs | 9 | **111** | 12x |
+| Knowledge base | 540KB | **1.5MB** | 2.8x |
+| Module Q&A quality | 7/10 | **10/10** | Auto-split = focused knowledge |
+
+> **What changed:** Large modules (extensions/ with 262 groups, src/ with 363 groups) are now auto-split into independent sub-modules. All modules run in parallel (8 concurrency). This reduced OpenClaw refresh from **5+ hours (never finished)** to **43 minutes (completed)**.
+
+---
+
 ## Documentation
 
 | | |

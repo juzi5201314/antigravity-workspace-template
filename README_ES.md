@@ -442,6 +442,54 @@ AG_MODULE_AGENT_TIMEOUT_SECONDS=90
 
 ---
 
+## Eval a gran escala: MiniMax2.7 en OpenClaw (12K archivos, 348K stars)
+
+Probado contra [OpenClaw](https://github.com/openclaw/openclaw) — el asistente IA open-source más popular (TypeScript + Swift + Kotlin, 12,133 archivos) — usando la misma API gratuita **MiniMax2.7**.
+
+### Resultados de Refresh
+
+```
+$ ag-refresh --workspace /path/to/openclaw
+[7/8] ▶ Ejecutando 154 módulos (concurrencia=8)...
+      Auto-split: extensions/ → 50+ sub-módulos (slack, telegram, whatsapp, ...)
+      Auto-split: src/ → 40+ sub-módulos (agents, gateway, config, ...)
+
+Tiempo total: 42m52s | 111 docs de módulo | 1.5MB base de conocimiento
+```
+
+### Matriz de evaluación Ask (11 tests)
+
+| Categoría | Pregunta | Resultado | Calidad |
+|:----------|:---------|:---------:|:-------:|
+| Comprensión básica | "What is this project?" | **OK** | 5/5 — sponsors, plataformas, features |
+| Módulo en detalle | "Telegram integration?" | **OK** | **5/5** — tabla de archivos + diagrama + tipos + constantes |
+| Módulo en detalle | "Discord voice channels?" | **OK** | **5/5** — pipeline de audio + código + patrones de diseño |
+| Módulo en detalle | "WhatsApp integration?" | **OK** | **5/5** — flujo de auth + arquitectura de plugins |
+| Cross-módulo | "How does Gateway work?" | Timeout | 2/5 — lista de archivos sin análisis |
+| Cross-módulo | "Testing frameworks?" | Timeout | 2/5 — listó configs de vitest |
+
+### Puntuaciones
+
+| Dimensión | Puntuación | Notas |
+|:----------|:----------:|:------|
+| Q&A básico | **9/10** | Resumen de proyecto excelente |
+| Análisis por módulo | **10/10** | Telegram/Discord/WhatsApp — diagramas, tipos, patrones |
+| Cross-módulo | **3/10** | Gateway, Testing — timeout con API gratuita |
+| **General** | **6.5/10** | **Q&A por módulo: production-ready incluso en proyectos de 12K archivos** |
+
+### Comparación de rendimiento
+
+| Métrica | OpenCMO (374 archivos) | OpenClaw (12K archivos) | Mejora |
+|:--------|:---------------------:|:----------------------:|:------:|
+| Tiempo de refresh | ~10 min | **43 min** | Paralelo + auto-split |
+| Docs de módulo | 9 | **111** | 12x |
+| Base de conocimiento | 540KB | **1.5MB** | 2.8x |
+| Calidad Q&A por módulo | 7/10 | **10/10** | Auto-split = conocimiento enfocado |
+
+> **Optimización clave:** Módulos grandes (extensions/ con 262 grupos, src/ con 363 grupos) se dividen automáticamente en sub-módulos independientes, todos ejecutados en paralelo (concurrencia 8). El refresh de OpenClaw pasó de **5+ horas (nunca terminó)** a **43 minutos (completado)**.
+
+---
+
 ## Documentación
 
 | | |

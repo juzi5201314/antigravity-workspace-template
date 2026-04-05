@@ -180,64 +180,78 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
 
         module_entries = build_refresh_module_swarm_v2(model, workspace)
         module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
+        mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
+        _mod_sem = asyncio.Semaphore(mod_concurrency)
 
-        for entry in module_entries:
-            if len(entry) == 2:
-                # Single agent — just run it (pre-loaded, needs ~1-2 turns)
-                mod_name, mod_agent = entry
-                print(f"  → RefreshModule_{mod_name} (1 group, pre-loaded)...", file=sys.stderr)
-                try:
-                    if module_timeout > 0:
-                        await asyncio.wait_for(
-                            Runner.run(
+        async def _run_module(entry: tuple) -> None:
+            """Run a single module (single-agent or multi-sub-agent+merge)."""
+            async with _mod_sem:
+                if len(entry) == 2:
+                    mod_name, mod_agent = entry
+                    print(f"  → RefreshModule_{mod_name} (1 group, pre-loaded)...", file=sys.stderr)
+                    try:
+                        if module_timeout > 0:
+                            await asyncio.wait_for(
+                                Runner.run(
+                                    mod_agent,
+                                    "Analyze the pre-loaded source code and write your module knowledge document.",
+                                    max_turns=5,
+                                ),
+                                timeout=module_timeout,
+                            )
+                        else:
+                            await Runner.run(
                                 mod_agent,
                                 "Analyze the pre-loaded source code and write your module knowledge document.",
                                 max_turns=5,
-                            ),
-                            timeout=module_timeout,
-                        )
-                    else:
-                        await Runner.run(
-                            mod_agent,
-                            "Analyze the pre-loaded source code and write your module knowledge document.",
-                            max_turns=5,
-                        )
-                except Exception as exc:
-                    print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+                            )
+                    except Exception as exc:
+                        print(f"  ⚠ RefreshModule_{mod_name} failed: {exc}", file=sys.stderr)
+                    return
 
-            elif len(entry) == 3:
-                # Multiple sub-agents + merge
+                # Multi sub-agents + merge
                 mod_name, sub_agents, write_tools = entry
-                print(f"  → RefreshModule_{mod_name} ({len(sub_agents)} groups, pre-loaded)...", file=sys.stderr)
+                print(
+                    f"  → RefreshModule_{mod_name} ({len(sub_agents)} groups)...",
+                    file=sys.stderr,
+                )
 
-                analyses: list[str] = []
-                for group_name, sub_agent in sub_agents:
-                    print(f"    → sub-agent {group_name}...", file=sys.stderr)
+                async def _run_sub(
+                    gname: str, sagent: object,
+                ) -> tuple[str, str | None]:
                     try:
                         if module_timeout > 0:
-                            result = await asyncio.wait_for(
+                            res = await asyncio.wait_for(
                                 Runner.run(
-                                    sub_agent,
+                                    sagent,
                                     "Analyze the pre-loaded source code. Output your analysis as Markdown.",
                                     max_turns=3,
                                 ),
                                 timeout=module_timeout,
                             )
                         else:
-                            result = await Runner.run(
-                                sub_agent,
+                            res = await Runner.run(
+                                sagent,
                                 "Analyze the pre-loaded source code. Output your analysis as Markdown.",
                                 max_turns=3,
                             )
-                        analyses.append(f"## Group: {group_name}\n\n{result.final_output}")
+                        print(f"    ✓ {mod_name}/{gname}", file=sys.stderr)
+                        return gname, res.final_output
                     except Exception as exc:
-                        print(f"    ⚠ sub-agent {group_name} failed: {exc}", file=sys.stderr)
+                        print(f"    ⚠ {mod_name}/{gname} failed: {exc}", file=sys.stderr)
+                        return gname, None
 
-                # Merge sub-agent outputs
+                sub_results = await asyncio.gather(
+                    *[_run_sub(gn, sa) for gn, sa in sub_agents]
+                )
+                analyses: list[str] = [
+                    f"## Group: {gn}\n\n{out}"
+                    for gn, out in sub_results if out is not None
+                ]
+
                 if analyses:
-                    print(f"    → merging {len(analyses)} analyses...", file=sys.stderr)
+                    print(f"    → merging {len(analyses)} analyses for {mod_name}...", file=sys.stderr)
                     try:
-                        from antigravity_engine.hub.agents import _wrap_tools
                         merge_agent = Agent(
                             name=f"RefreshModule_{mod_name}_merge",
                             instructions=_REFRESH_MERGE_INSTRUCTIONS.format(
@@ -254,8 +268,16 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
                             )
                         else:
                             await Runner.run(merge_agent, "Merge and write.", max_turns=3)
+                        print(f"  ✓ RefreshModule_{mod_name} done", file=sys.stderr)
                     except Exception as exc:
-                        print(f"    ⚠ merge failed: {exc}", file=sys.stderr)
+                        print(f"    ⚠ merge {mod_name} failed: {exc}", file=sys.stderr)
+
+        print(
+            f"  ▶ Running {len(module_entries)} modules "
+            f"(concurrency={mod_concurrency})...",
+            file=sys.stderr,
+        )
+        await asyncio.gather(*[_run_module(e) for e in module_entries])
 
         print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
         try:

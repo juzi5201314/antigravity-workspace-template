@@ -582,13 +582,19 @@ def _dir_has_code(directory: Path, venv_dirs: set[str]) -> bool:
 
 
 def detect_modules(root: Path) -> list[str]:
-    """Detect code modules with two-level resolution.
+    """Detect code modules with two-level resolution and large-module auto-split.
 
     Top-level directories are scanned first.  When a top-level directory
     is a Python package (contains a sub-package with ``__init__.py``)
     *and* that sub-package contains three or more child packages, the
     children are promoted to individual modules so the agent swarm can
     specialise at a finer granularity.
+
+    **Language-agnostic auto-split:** When a top-level directory has many
+    code-bearing sub-directories (≥ ``_AUTO_SPLIT_THRESHOLD``), it is
+    automatically split into sub-modules regardless of language.  This
+    handles large TypeScript/JS projects (e.g. ``extensions/`` with 50+
+    platform integrations) that lack ``__init__.py``.
 
     Only directories that contain actual source code (not just docs or
     data) are treated as modules.
@@ -626,12 +632,24 @@ def detect_modules(root: Path) -> list[str]:
                     modules.extend(sub_modules)
                     continue
 
+            # Language-agnostic auto-split: if a directory has many
+            # code-bearing children, promote each child to its own module.
+            child_subs = _detect_sub_modules_any_lang(item, item.name, venv_dirs, skip)
+            if len(child_subs) >= _AUTO_SPLIT_THRESHOLD:
+                modules.extend(child_subs)
+                continue
+
             # Fallback: treat entire top-level dir as one module
             modules.append(item.name)
     except OSError:
         pass
 
     return modules
+
+
+#: When a top-level directory has this many or more code-bearing
+#: sub-directories, auto-split into sub-modules (language-agnostic).
+_AUTO_SPLIT_THRESHOLD = int(os.environ.get("AG_AUTO_SPLIT_THRESHOLD", "6"))
 
 
 def _find_inner_package(top_dir: Path, skip: set[str]) -> Path | None:
@@ -680,6 +698,36 @@ def _detect_sub_modules(
     return sub_modules
 
 
+def _detect_sub_modules_any_lang(
+    parent_dir: Path,
+    parent_name: str,
+    venv_dirs: set[str],
+    skip: set[str],
+) -> list[str]:
+    """Detect sub-modules by scanning direct child directories for code.
+
+    Unlike :func:`_detect_sub_modules`, this is language-agnostic — it does
+    not require ``__init__.py`` or any inner package structure.  Used for
+    auto-splitting large directories (e.g. TypeScript ``extensions/``).
+
+    Returns module ids as ``"{parent}_{child}"`` (slash-free).
+    """
+    sub_modules: list[str] = []
+    try:
+        for child in sorted(parent_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            if child.name.startswith(".") or child.name.startswith("_"):
+                continue
+            if child.name in skip:
+                continue
+            if _dir_has_code(child, venv_dirs):
+                sub_modules.append(f"{parent_name}_{child.name}")
+    except OSError:
+        pass
+    return sub_modules
+
+
 def resolve_module_path(root: Path, module_id: str) -> Path:
     """Resolve a module identifier to its filesystem directory.
 
@@ -700,15 +748,21 @@ def resolve_module_path(root: Path, module_id: str) -> Path:
         return direct
 
     # Two-level case: "parent_child" → root/parent/<inner_pkg>/child
+    # OR language-agnostic auto-split: "parent_child" → root/parent/child
     if "_" in module_id:
         parts = module_id.split("_", 1)
         parent_dir = root / parts[0]
         if parent_dir.is_dir():
+            # First try: inner Python package (engine_hub → engine/antigravity_engine/hub)
             inner = _find_inner_package(parent_dir, _MODULE_SKIP_DIRS)
             if inner is not None:
                 child_dir = inner / parts[1]
                 if child_dir.is_dir():
                     return child_dir
+            # Second try: direct child (extensions_slack → extensions/slack)
+            child_dir = parent_dir / parts[1]
+            if child_dir.is_dir():
+                return child_dir
 
     # Fallback
     return direct
