@@ -585,21 +585,24 @@ async def _generate_module_registry(workspace: Path, model: str) -> str:
             pass
 
     prompt = f"""\
-You are a senior software architect. Based on the evidence below, write a
-**Module Registry** — a concise reference that describes what each module
-is responsible for.
+You are a senior software architect. Based on the evidence below, write an
+**ultra-compact Module Registry** — a tag-line index for a Router agent.
 
-For EACH module, write exactly:
-- **Module name** (as given)
-- **2-3 sentences** describing: what it does, what it owns, what other
-  modules depend on it or it depends on.
+FORMAT — one line per module, NO exceptions:
+- **module_name**: 5-10 keyword tags (comma-separated)
 
-The registry will be used by a Router agent to decide which module expert
-to consult for a given question. So focus on **what questions each module
-can answer** — not implementation details.
+The Router reads the ENTIRE registry to decide which module expert to
+consult. Keep it SHORT so it always fits in context. Focus on what
+TOPICS and QUESTIONS each module can answer.
 
-Output ONLY the Markdown registry. Start with `# Module Registry`. Use a
-bullet list with bold module names.
+GOOD example:
+- **extensions_telegram**: Telegram bot, polling, message handlers, voice, grammY
+- **src_gateway**: WebSocket server, device auth, TLS, protocol, REST API
+
+BAD example (too long):
+- **extensions_telegram**: The Telegram integration provides complete bot infrastructure including inbound message processing...
+
+Output ONLY the Markdown registry. Start with `# Module Registry`.
 
 ---
 
@@ -732,13 +735,54 @@ def _build_fallback_registry(workspace: Path) -> str:
         except OSError:
             pass
 
-    lines: list[str] = ["# Module Registry (auto-generated fallback)\n"]
+    lines: list[str] = ["# Module Registry\n"]
+    modules_dir = ag_dir / "modules"
     for mod in modules:
         rel_dir = str(resolve_module_path(workspace, mod).relative_to(workspace)) + "/"
-        section = _extract_module_section(structure, mod, rel_dir) if structure else ""
-        file_count = section.count("###")
-        desc = f"Contains {file_count} files." if file_count else "No structure data available."
-        lines.append(f"- **{mod}**: {desc}")
+
+        # Source 1: module knowledge doc — extract heading keywords
+        tags: list[str] = []
+        mod_doc = modules_dir / f"{mod}.md"
+        if mod_doc.is_file():
+            try:
+                doc_text = mod_doc.read_text(encoding="utf-8")[:1500]
+                for line in doc_text.splitlines():
+                    line_s = line.strip()
+                    # Extract ## and ### headings as tags
+                    if line_s.startswith("## ") or line_s.startswith("### "):
+                        heading = line_s.lstrip("#").strip().lower()
+                        # Skip generic headings
+                        if heading not in (
+                            "overview", "summary", "key files", "main files",
+                            "architecture", "design patterns", "file locations",
+                            "key dependencies", "dependencies",
+                        ):
+                            tags.append(heading)
+            except OSError:
+                pass
+
+        # Source 2: structure.md — extract key filenames
+        if not tags:
+            section = _extract_module_section(structure, mod, rel_dir) if structure else ""
+            for line in section.splitlines():
+                line_s = line.strip()
+                if line_s.startswith("### "):
+                    fname = line_s[4:].strip().rsplit("/", 1)[-1]
+                    stem = fname.rsplit(".", 1)[0] if "." in fname else fname
+                    if stem not in ("index", "__init__", "main", "test", "utils", "types"):
+                        tags.append(stem)
+
+        # Deduplicate and limit to 8 tags
+        seen: set[str] = set()
+        unique_tags: list[str] = []
+        for t in tags:
+            if t not in seen:
+                seen.add(t)
+                unique_tags.append(t)
+            if len(unique_tags) >= 8:
+                break
+        tag_str = ", ".join(unique_tags) if unique_tags else mod.replace("_", " ")
+        lines.append(f"- **{mod}**: {tag_str}")
 
     return "\n".join(lines)
 
