@@ -277,5 +277,45 @@ def log_decision_cmd(
     console.print(f"[green]Logged decision to {target.relative_to(workspace_path)}[/green]")
 
 
+@app.command("clean")
+def clean_cmd(
+    workspace: str = typer.Option(".", "--workspace", "-w", help="Project directory."),
+    force: bool = typer.Option(False, "--force", "-f", help="Force clean without prompting."),
+) -> None:
+    """Clean agent memory and logs to restore a pristine environment."""
+    workspace_path = Path(workspace).resolve()
+
+    if not force:
+        if not typer.confirm(f"Are you sure you want to clean logs and memory in {workspace_path}?"):
+            console.print("[dim]Aborted clean.[/dim]")
+            raise typer.Exit()
+
+    cleaned_count = 0
+
+    # Directories to clean
+    dirs_to_clean = [
+        workspace_path / "artifacts" / "logs",
+        workspace_path / ".antigravity" / "memory",
+        workspace_path / "memory", # legacy
+    ]
+
+    for d in dirs_to_clean:
+        if d.exists() and d.is_dir():
+            for item in d.iterdir():
+                if item.name == ".gitkeep":
+                    continue
+                try:
+                    if item.is_file():
+                        item.unlink(missing_ok=True)
+                        cleaned_count += 1
+                    elif item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+                        cleaned_count += 1
+                except Exception:
+                    pass
+
+    console.print(f"[green]✔ Cleaned {cleaned_count} temporary files/directories.[/green]")
+
+
 if __name__ == "__main__":
     app()
