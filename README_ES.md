@@ -532,6 +532,13 @@ Evaluado contra [OpenCMO](https://github.com/study8677/OpenCMO) (Python + React/
       </a><br/>
       <sub>Empaquetado de skills y mejoras de recuperación KG · Sincronización README multilingüe (#30)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/SunkenCost">
+        <img src="https://github.com/SunkenCost.png" width="80" /><br/>
+        <b>SunkenCost</b>
+      </a><br/>
+      <sub>Comando <code>ag clean</code> · Protección de entrada <code>__main__</code> (#37)</sub>
+    </td>
   </tr>
 </table>
 

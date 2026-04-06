@@ -555,6 +555,13 @@ AG_MODULE_AGENT_TIMEOUT_SECONDS=90
       </a><br/>
       <sub>技能封装与知识图谱检索增强 · 多语言 README 同步更新 (#30)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/SunkenCost">
+        <img src="https://github.com/SunkenCost.png" width="80" /><br/>
+        <b>SunkenCost</b>
+      </a><br/>
+      <sub><code>ag clean</code> 清理命令 · <code>__main__</code> 入口保护 (#37)</sub>
+    </td>
   </tr>
 </table>
 

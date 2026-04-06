@@ -576,6 +576,13 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
       </a><br/>
       <sub>Skill packaging & KG retrieval enhancements · Multi-language README sync (#30)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/SunkenCost">
+        <img src="https://github.com/SunkenCost.png" width="80" /><br/>
+        <b>SunkenCost</b>
+      </a><br/>
+      <sub><code>ag clean</code> command · <code>__main__</code> entry-point guard (#37)</sub>
+    </td>
   </tr>
 </table>
 
