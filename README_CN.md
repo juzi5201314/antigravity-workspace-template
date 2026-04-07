@@ -562,6 +562,13 @@ AG_MODULE_AGENT_TIMEOUT_SECONDS=90
       </a><br/>
       <sub><code>ag clean</code> 清理命令 · <code>__main__</code> 入口保护 (#37)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/aravindhbalaji04">
+        <img src="https://github.com/aravindhbalaji04.png" width="80" /><br/>
+        <b>Aravindh Balaji</b>
+      </a><br/>
+      <sub>统一指令层围绕 <code>AGENTS.md</code> (#41)</sub>
+    </td>
   </tr>
 </table>
 

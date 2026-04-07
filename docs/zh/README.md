@@ -140,6 +140,7 @@ A: 知识中枢 (`ag ask`、`ag refresh`、`ag report`、`ag log-decision`) 在 
 - [@devalexanderdaza](https://github.com/devalexanderdaza) — 初始贡献者，完成 demo 工具、Agent 功能增强、Agent OS 路线提出、MCP 集成。  
 - [@Subham-KRLX](https://github.com/Subham-KRLX) — 增加动态工具/上下文加载（Fixes #4）与多 Agent 集群协议（Fixes #6）。
 - [@SunkenCost](https://github.com/SunkenCost) — 新增 `ag clean` 清理命令与 `__main__` 入口保护（#37）。
+- [@aravindhbalaji04](https://github.com/aravindhbalaji04) — 统一指令层围绕 `AGENTS.md`（#41）。
 
 ## 📄 许可证
 

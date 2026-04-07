@@ -159,6 +159,7 @@ Bienvenemos contribuciones en todos los niveles:
 - [@devalexanderdaza](https://github.com/devalexanderdaza) — Primer contribuidor. Implementó herramientas de demo, mejoró la funcionalidad del agente, propuso la hoja de ruta "Agent OS" y completó la integración MCP.
 - [@Subham-KRLX](https://github.com/Subham-KRLX) — Añadió carga dinámica de herramientas y contexto (Fixes #4) y el protocolo de clúster multi‑agente (Fixes #6).
 - [@SunkenCost](https://github.com/SunkenCost) — Comando `ag clean` y protección de entrada `__main__` (#37).
+- [@aravindhbalaji04](https://github.com/aravindhbalaji04) — Superficie de instrucciones unificada en torno a `AGENTS.md` (#41).
 
 ## 📄 Licencia
 

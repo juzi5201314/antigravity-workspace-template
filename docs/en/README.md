@@ -159,6 +159,7 @@ See a typo or unclear section? Submit a PR to improve the docs!
 - [@devalexanderdaza](https://github.com/devalexanderdaza) — First contributor. Implemented demo tools, enhanced agent functionality, proposed the "Agent OS" roadmap, and completed MCP integration.
 - [@Subham-KRLX](https://github.com/Subham-KRLX) — Added dynamic tools and context loading (Fixes #4) and the multi-agent cluster protocol (Fixes #6).
 - [@SunkenCost](https://github.com/SunkenCost) — Added `ag clean` command and `__main__` entry-point guard (#37).
+- [@aravindhbalaji04](https://github.com/aravindhbalaji04) — Unified instruction surface around `AGENTS.md` (#41).
 
 ## 📄 License
 

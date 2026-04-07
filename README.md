@@ -583,6 +583,13 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
       </a><br/>
       <sub><code>ag clean</code> command · <code>__main__</code> entry-point guard (#37)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/aravindhbalaji04">
+        <img src="https://github.com/aravindhbalaji04.png" width="80" /><br/>
+        <b>Aravindh Balaji</b>
+      </a><br/>
+      <sub>Unified instruction surface around <code>AGENTS.md</code> (#41)</sub>
+    </td>
   </tr>
 </table>
 

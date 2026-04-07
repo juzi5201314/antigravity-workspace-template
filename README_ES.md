@@ -539,6 +539,13 @@ Evaluado contra [OpenCMO](https://github.com/study8677/OpenCMO) (Python + React/
       </a><br/>
       <sub>Comando <code>ag clean</code> · Protección de entrada <code>__main__</code> (#37)</sub>
     </td>
+    <td align="center" width="20%">
+      <a href="https://github.com/aravindhbalaji04">
+        <img src="https://github.com/aravindhbalaji04.png" width="80" /><br/>
+        <b>Aravindh Balaji</b>
+      </a><br/>
+      <sub>Superficie de instrucciones unificada en torno a <code>AGENTS.md</code> (#41)</sub>
+    </td>
   </tr>
 </table>
 
