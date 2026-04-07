@@ -93,7 +93,7 @@ claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 ```bash
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
 ag init mi-proyecto && cd mi-proyecto
-# Tu IDE lee automáticamente .antigravity/rules.md, .cursorrules, CLAUDE.md, AGENTS.md
+# Los archivos de entrada del IDE hacen bootstrap hacia AGENTS.md; el contexto dinámico vive en .antigravity/
 ```
 
 ---
@@ -184,7 +184,7 @@ ag init mi-proyecto
 ag init mi-proyecto --force
 ```
 
-Crea `.antigravity/rules.md`, `.cursorrules`, `CLAUDE.md`, `AGENTS.md`, `.windsurfrules` — cada IDE lee su archivo de configuración nativo, todos apuntando a la misma base de conocimiento `.antigravity/`.
+Crea `AGENTS.md` (reglas de comportamiento autoritativas), archivos bootstrap de IDE (`.cursorrules`, `CLAUDE.md`, `.windsurfrules`, `.clinerules`, `.github/copilot-instructions.md`) y archivos de contexto dinámico en `.antigravity/`.
 
 ### 2. `ag-refresh` — Aprendizaje multi-agente
 
@@ -226,7 +226,7 @@ La arquitectura está codificada en **archivos** — cualquier agente que lea ar
 | Cline | `.clinerules` |
 | Google Antigravity | `.antigravity/rules.md` |
 
-Todos generados por `ag init`. Todos referencian `.antigravity/` para contexto compartido.
+Todo se genera con `ag init`: `AGENTS.md` es el único rulebook de comportamiento, los archivos específicos por IDE son bootstraps ligeros, y `.antigravity/` guarda el contexto dinámico compartido del proyecto.
 
 ---
 

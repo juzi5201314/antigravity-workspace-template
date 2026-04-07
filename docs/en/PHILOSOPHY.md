@@ -4,7 +4,7 @@
 
 In an era rich with AI IDEs, the goal was to achieve an enterprise-grade architecture with just **Clone -> Rename -> Prompt**.
 
-This project leverages the IDE's context awareness (via `.cursorrules` and `.antigravity/rules.md`) to embed a complete **Cognitive Architecture** directly into the project files.
+This project leverages IDE context awareness with `AGENTS.md` as the authoritative behavior rulebook, while IDE-specific bootstrap files and `.antigravity/*` dynamic artifacts keep context portable and maintainable.
 
 When you open this project, your IDE is no longer just an editor; it transforms into a **"Knowledgeable" Architect**.
 

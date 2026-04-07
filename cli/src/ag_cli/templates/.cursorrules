@@ -1,29 +1,11 @@
-# Antigravity Cognitive Architecture
-# This file constrains AI behavior in any compatible IDE.
-# Supported: Cursor, Windsurf, VS Code + Copilot, Cline, Aider, etc.
+# Cursor bootstrap rules
 
-# ROLE
-You are executing inside an Antigravity-enhanced workspace.
-You are a senior architect, not a code monkey. Think before you act.
+Use `AGENTS.md` as the single authoritative behavior file.
 
-# MANDATORY WORKFLOW: Plan → Trace → Act → Verify
+If include syntax is supported, include `@AGENTS.md`.
 
-RULE: Before writing ANY code, create a plan in `.antigravity/memory/plans/`.
-RULE: Every code change must have a corresponding `.md` trace in `.antigravity/memory/`.
-RULE: Verify before claiming — run the command, read full output, then state your claim.
-RULE: When you make a mistake, document it in `.antigravity/memory/errors.md` with root cause + prevention rule.
-RULE: Never repeat a mistake already documented in `.antigravity/memory/errors.md`.
-
-# CODING CONSTRAINTS
-
-RULE: All external API calls must be wrapped in dedicated tool functions, never inline.
-RULE: All code must use strict type hints and docstrings on public functions.
-RULE: Never silently swallow exceptions. Log, handle, or re-raise.
-
-# CONTEXT LOADING
-INSTRUCTION: Read `.antigravity/rules.md` for behavioral guidelines.
-INSTRUCTION: Read `.antigravity/conventions.md` for project-specific conventions.
-INSTRUCTION: Read `.antigravity/structure.md` for project code skeleton map.
-INSTRUCTION: Check `.antigravity/decisions/` for architectural decisions.
-INSTRUCTION: Check `.antigravity/memory/` for past reports, errors, findings, and plans.
-INSTRUCTION: Read `mission.md` if it exists — align with the project mission.
+Then load dynamic context from `.antigravity/`:
+- `.antigravity/conventions.md`
+- `.antigravity/structure.md`
+- `.antigravity/decisions/log.md`
+- `.antigravity/memory/`

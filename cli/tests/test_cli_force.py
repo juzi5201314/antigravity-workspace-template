@@ -51,3 +51,23 @@ def test_init_overwrites_with_force(tmp_path: Path) -> None:
 
             # File should be restored to original template content
             assert target.read_text(encoding="utf-8") == original
+
+
+def test_init_bootstrap_files_defer_to_agents_md(tmp_path: Path) -> None:
+    """Injected bootstrap files should defer to AGENTS.md."""
+    result = runner.invoke(app, ["init", str(tmp_path)])
+    assert result.exit_code == 0
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    claude = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    cursor = (tmp_path / ".cursorrules").read_text(encoding="utf-8")
+    context = (tmp_path / "CONTEXT.md").read_text(encoding="utf-8")
+    antigravity_rules = (tmp_path / ".antigravity" / "rules.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "authoritative rulebook" in agents
+    assert "Authoritative behavior rules live in `AGENTS.md`." in claude
+    assert "Use `AGENTS.md` as the single authoritative behavior file." in cursor
+    assert "`AGENTS.md` is the single source of truth for agent behavior." in context
+    assert "Behavioral rules are defined in `AGENTS.md`." in antigravity_rules
