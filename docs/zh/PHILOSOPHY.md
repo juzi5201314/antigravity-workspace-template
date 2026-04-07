@@ -2,7 +2,7 @@
 
 ## Antigravity Workspace 的愿景
 
-在 AI IDE 已经很强的时代，目标是让企业级架构变成 **Clone → Rename → Prompt** 的简单体验。通过 `.cursorrules` 和 `.antigravity/rules.md`，把完整的**认知架构**写进仓库，让 IDE 变成“懂行的架构师”，而不是空白编辑器。
+在 AI IDE 已经很强的时代，目标是让企业级架构变成 **Clone → Rename → Prompt** 的简单体验。通过以 `AGENTS.md` 作为权威行为规则，并配合 IDE 引导文件与 `.antigravity/*` 动态上下文，把完整的**认知架构**写进仓库，让 IDE 变成“懂行的架构师”，而不是空白编辑器。
 
 ## 为什么要有“会思考”的脚手架？
 

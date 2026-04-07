@@ -4,7 +4,7 @@
 
 En una era rica de IDEs de IA, el objetivo era lograr una arquitectura de nivel empresarial con simplemente **Clonar -> Renombrar -> Solicitar**.
 
-Este proyecto aprovecha la conciencia contextual del IDE (mediante `.cursorrules` y `.antigravity/rules.md`) para integrar una **Arquitectura Cognitiva** completa directamente en los archivos del proyecto.
+Este proyecto aprovecha la conciencia contextual del IDE con `AGENTS.md` como rulebook de comportamiento autoritativo, mientras los archivos bootstrap por IDE y los artefactos dinámicos en `.antigravity/*` mantienen un contexto portable y mantenible.
 
 Cuando abres este proyecto, tu IDE ya no es solo un editor; se transforma en un **"Arquitecto Conocedor"**.
 

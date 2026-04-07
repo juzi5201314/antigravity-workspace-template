@@ -1,51 +1,17 @@
-# 🧠 Project Context
+# Context Index
 
-> **First Principle**: AI Agent capability = context quality. Architecture = files.
+This file is a quick index, not a behavioral rulebook.
 
-## Cognitive Loop
+## Authoritative Rules
+- `AGENTS.md` is the single source of truth for agent behavior.
 
-```
-Think → Act → Reflect → Evolve
- ↑                        |
- └────────────────────────┘
-```
+## Dynamic Project Context
+- `.antigravity/conventions.md` for project conventions.
+- `.antigravity/structure.md` for code map.
+- `.antigravity/knowledge_graph.md` for relationship context (if present).
+- `.antigravity/decisions/log.md` for architectural decisions.
+- `.antigravity/memory/` for historical traces and findings.
 
-| Phase | Rule | Output |
-|:------|:-----|:-------|
-| **Think** | Plan before coding. Reason through tradeoffs. | `artifacts/plan_*.md` |
-| **Act** | Clean, typed, documented code. | Source files |
-| **Reflect** | Test. Verify. Save evidence. | `artifacts/logs/` |
-| **Evolve** | Document mistakes. Extract prevention rules. | `artifacts/error_journal.md` |
-
-## Project Structure
-
-```
-your-project/
-├── .antigravity/rules.md   # AI behavioral constraints
-├── .cursorrules             # IDE cognitive bootstrap
-├── CONTEXT.md               # This file
-├── mission.md               # (optional) High-level objective
-├── .context/                # (optional) Injected knowledge
-├── artifacts/               # All AI outputs
-│   ├── plan_*.md            #   Plans (BEFORE coding)
-│   ├── logs/                #   Test & execution logs
-│   ├── error_journal.md     #   Self-evolution tracking
-│   └── screenshots/         #   UI evidence
-└── src/                     # Source code
-```
-
-## Coding Standards
-
-- **Type hints** on all functions
-- **Google-style docstrings** on all functions/classes
-- **Pydantic** for data models
-- **Tool encapsulation** for external APIs
-- **No silent exceptions**
-
-## Self-Evolution
-
-The architecture learns from mistakes:
-1. Bug found → document in `artifacts/error_journal.md`
-2. Lesson generalizable → extract into `.antigravity/rules.md`
-3. Before acting → scan error journal for relevant past failures
-4. **Never repeat a documented mistake**
+## Optional Context
+- `mission.md` for high-level project intent.
+- `.context/` for additional injected documentation.

@@ -93,7 +93,7 @@ claude mcp add antigravity ag-mcp -- --workspace $(pwd)
 ```bash
 pip install git+https://github.com/study8677/antigravity-workspace-template.git#subdirectory=cli
 ag init my-project && cd my-project
-# IDE 自动读取 .antigravity/rules.md、.cursorrules、CLAUDE.md、AGENTS.md
+# IDE 入口文件会引导到 AGENTS.md；动态项目上下文在 .antigravity/
 ```
 
 ---
@@ -184,7 +184,7 @@ ag init my-project
 ag init my-project --force
 ```
 
-创建 `.antigravity/rules.md`、`.cursorrules`、`CLAUDE.md`、`AGENTS.md`、`.windsurfrules` —— 每个 IDE 读取各自的原生配置文件，全部指向同一个 `.antigravity/` 知识库。
+创建 `AGENTS.md`（权威行为规则）、IDE 引导文件（`.cursorrules`、`CLAUDE.md`、`.windsurfrules`、`.clinerules`、`.github/copilot-instructions.md`）以及 `.antigravity/` 动态上下文文件。
 
 ### 2. `ag-refresh` — 多智能体自主学习
 
@@ -226,7 +226,7 @@ Router 读取 `structure.md` 地图，将问题路由到对应的 **ModuleAgent*
 | Cline | `.clinerules` |
 | Google Antigravity | `.antigravity/rules.md` |
 
-均由 `ag init` 生成，均指向 `.antigravity/` 共享项目上下文。
+均由 `ag init` 生成：`AGENTS.md` 是唯一行为规则源，IDE 专属文件是轻量引导层，`.antigravity/` 保存共享的动态项目上下文。
 
 ---
 
