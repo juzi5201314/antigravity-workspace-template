@@ -13,11 +13,36 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
+from antigravity_engine.hub._utils import is_safe_path
+
+
+def _workspace_root() -> Path:
+    """Resolve the trusted workspace root from env var or current directory."""
+    env = os.environ.get("WORKSPACE_PATH", "").strip()
+    if env:
+        return Path(env).resolve()
+    return Path.cwd().resolve()
+
 
 def _resolve_workspace(workspace: str | None = None) -> Path:
-    if workspace:
-        return Path(workspace).resolve()
-    return Path.cwd().resolve()
+    """Resolve and validate workspace path from explicit arg, env var, or cwd.
+
+    Args:
+        workspace: Optional workspace path override.
+
+    Returns:
+        A canonical workspace path constrained to the trusted workspace root.
+
+    Raises:
+        ValueError: If the provided workspace escapes the trusted workspace root.
+    """
+    root = _workspace_root()
+    candidate = Path(workspace).resolve() if workspace else root
+    if not is_safe_path(root, candidate):
+        raise ValueError(
+            "workspace must be inside the current project workspace"
+        )
+    return candidate
 
 
 def _read_jsonl(path: Path, max_rows: int | None = None) -> list[dict[str, Any]]:

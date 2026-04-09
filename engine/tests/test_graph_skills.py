@@ -26,7 +26,10 @@ def _load_skill_tools_module(skill_name: str) -> ModuleType:
     return module
 
 
-def test_query_graph_returns_relevant_subgraph(tmp_path: Path) -> None:
+def test_query_graph_returns_relevant_subgraph(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     """query_graph should return matching triples and replayable evidence."""
     graph_dir = tmp_path / ".antigravity" / "graph"
     graph_dir.mkdir(parents=True)
@@ -52,6 +55,8 @@ def test_query_graph_returns_relevant_subgraph(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
 
     module = _load_skill_tools_module("graph-retrieval")
     result = module.query_graph("login auth", workspace=str(tmp_path))
@@ -111,6 +116,26 @@ def test_ask_filesystem_delegates_to_pipeline(tmp_path: Path, monkeypatch) -> No
 
     assert result == "graph-aware answer"
 
+
+
+
+def test_graph_retrieval_rejects_workspace_outside_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """graph-retrieval tools should reject workspace paths outside root."""
+    module = _load_skill_tools_module("graph-retrieval")
+    outside = tmp_path.parent / "outside"
+    outside.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
+
+    try:
+        module.query_graph("login", workspace=str(outside))
+    except ValueError as exc:
+        assert "workspace must be inside" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for out-of-workspace path.")
 
 def test_knowledge_layer_rejects_workspace_outside_root(
     tmp_path: Path,
