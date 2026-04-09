@@ -72,6 +72,63 @@ def _edge_text(edge: dict[str, Any]) -> str:
     )
 
 
+def _read_knowledge_graph_rows(workspace: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Read fallback graph rows from ``knowledge_graph.json``.
+
+    Args:
+        workspace: Workspace root path.
+
+    Returns:
+        Tuple of ``(nodes_rows, edges_rows)`` in normalized JSONL-like format.
+    """
+    knowledge_graph_path = workspace / ".antigravity" / "knowledge_graph.json"
+    if not knowledge_graph_path.exists() or not knowledge_graph_path.is_file():
+        return [], []
+
+    try:
+        graph = json.loads(knowledge_graph_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return [], []
+
+    if not isinstance(graph, dict):
+        return [], []
+
+    retrieval_id = str(graph.get("created_at_utc", "")) or "refresh-knowledge-graph"
+    tool_name = "refresh_pipeline"
+
+    nodes_rows: list[dict[str, Any]] = []
+    raw_nodes = graph.get("nodes", [])
+    if isinstance(raw_nodes, list):
+        for node in raw_nodes:
+            if not isinstance(node, dict):
+                continue
+            nodes_rows.append(
+                {
+                    "schema": "antigravity-graph-node-v1",
+                    "retrieval_id": retrieval_id,
+                    "tool_name": tool_name,
+                    "node": node,
+                }
+            )
+
+    edges_rows: list[dict[str, Any]] = []
+    raw_edges = graph.get("edges", [])
+    if isinstance(raw_edges, list):
+        for edge in raw_edges:
+            if not isinstance(edge, dict):
+                continue
+            edges_rows.append(
+                {
+                    "schema": "antigravity-graph-edge-v1",
+                    "retrieval_id": retrieval_id,
+                    "tool_name": tool_name,
+                    "edge": edge,
+                }
+            )
+
+    return nodes_rows, edges_rows
+
+
 def query_graph(query: str, max_hops: int = 2, workspace: str = ".") -> dict[str, Any]:
     """Retrieve a relevant semantic subgraph for a user query.
 
@@ -87,6 +144,8 @@ def query_graph(query: str, max_hops: int = 2, workspace: str = ".") -> dict[str
     max_rows = max(100, max_rows)
     nodes_rows = _read_jsonl(graph_dir / "nodes.jsonl", max_rows=max_rows)
     edges_rows = _read_jsonl(graph_dir / "edges.jsonl", max_rows=max_rows)
+    if not nodes_rows and not edges_rows:
+        nodes_rows, edges_rows = _read_knowledge_graph_rows(ws)
 
     if not query.strip():
         return {
@@ -99,7 +158,7 @@ def query_graph(query: str, max_hops: int = 2, workspace: str = ".") -> dict[str
 
     if not nodes_rows and not edges_rows:
         return {
-            "summary": "No graph store found. Run retrieval tools first.",
+            "summary": "No graph store found. Run refresh or retrieval tools first.",
             "triples": [],
             "evidence": [],
             "nodes": [],
