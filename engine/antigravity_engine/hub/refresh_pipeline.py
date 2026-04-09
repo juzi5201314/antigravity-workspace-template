@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> None:
             json.dumps(graph, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        _export_normalized_graph_store(ag_dir, graph)
         (ag_dir / "knowledge_graph.md").write_text(
             render_knowledge_graph_markdown(graph),
             encoding="utf-8",
@@ -399,6 +401,67 @@ def _format_scan_report(report) -> str:
         lines.append(f"\n--- Git activity ---\n{git_summary}")
 
     return "\n".join(lines)
+
+
+def _export_normalized_graph_store(ag_dir: Path, graph: dict[str, Any]) -> None:
+    """Export knowledge graph into normalized JSONL graph store files.
+
+    Args:
+        ag_dir: The ``.antigravity`` directory path.
+        graph: The in-memory knowledge graph payload.
+    """
+    graph_dir = ag_dir / "graph"
+    graph_dir.mkdir(parents=True, exist_ok=True)
+
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+    if not isinstance(nodes, list):
+        nodes = []
+    if not isinstance(edges, list):
+        edges = []
+
+    retrieval_id = str(graph.get("created_at_utc", "")) or "refresh-knowledge-graph"
+    tool_name = "refresh_pipeline"
+
+    nodes_lines: list[str] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        nodes_lines.append(
+            json.dumps(
+                {
+                    "schema": "antigravity-graph-node-v1",
+                    "retrieval_id": retrieval_id,
+                    "tool_name": tool_name,
+                    "node": node,
+                },
+                ensure_ascii=False,
+            )
+        )
+    (graph_dir / "nodes.jsonl").write_text(
+        ("\n".join(nodes_lines) + "\n") if nodes_lines else "",
+        encoding="utf-8",
+    )
+
+    edges_lines: list[str] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        edges_lines.append(
+            json.dumps(
+                {
+                    "schema": "antigravity-graph-edge-v1",
+                    "retrieval_id": retrieval_id,
+                    "tool_name": tool_name,
+                    "edge": edge,
+                },
+                ensure_ascii=False,
+            )
+        )
+    (graph_dir / "edges.jsonl").write_text(
+        ("\n".join(edges_lines) + "\n") if edges_lines else "",
+        encoding="utf-8",
+    )
 
 
 def _get_head_sha(workspace: Path) -> str | None:

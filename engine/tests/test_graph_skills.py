@@ -1,6 +1,7 @@
 """Tests for graph-retrieval and knowledge-layer skills."""
 
 from importlib.util import module_from_spec, spec_from_file_location
+import json
 from pathlib import Path
 from types import ModuleType
 
@@ -60,6 +61,38 @@ def test_query_graph_returns_relevant_subgraph(tmp_path: Path) -> None:
     assert result["triples"]
     assert ["login", "defined_in", "auth module"] in result["triples"]
     assert {"retrieval_id": "r1", "tool_name": "search_code"} in result["evidence"]
+
+
+def test_query_graph_after_refresh_without_retrieval_graph_jsonl(tmp_path: Path) -> None:
+    """query_graph should fallback to knowledge_graph.json when JSONL files are missing."""
+    ag_dir = tmp_path / ".antigravity"
+    ag_dir.mkdir(parents=True)
+    (ag_dir / "knowledge_graph.json").write_text(
+        json.dumps(
+            {
+                "schema": "antigravity-knowledge-graph-v2",
+                "created_at_utc": "2026-04-09T00:00:00+00:00",
+                "workspace": str(tmp_path.resolve()),
+                "nodes": [
+                    {"id": "function:query_graph", "type": "function", "label": "query_graph"},
+                    {"id": "module:graph_retrieval", "type": "module", "label": "graph retrieval"},
+                ],
+                "edges": [
+                    {"from": "function:query_graph", "to": "module:graph_retrieval", "type": "defined_in"},
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    module = _load_skill_tools_module("graph-retrieval")
+    result = module.query_graph("query_graph module", workspace=str(tmp_path))
+
+    assert result["triples"]
+    assert result["evidence"]
+    assert any(t[1] == "defined_in" for t in result["triples"])
 
 
 def test_refresh_filesystem_reports_generated_artifacts(
