@@ -68,7 +68,7 @@ def test_query_graph_returns_relevant_subgraph(
     assert {"retrieval_id": "r1", "tool_name": "search_code"} in result["evidence"]
 
 
-def test_query_graph_after_refresh_without_retrieval_graph_jsonl(tmp_path: Path) -> None:
+def test_query_graph_after_refresh_without_retrieval_graph_jsonl(tmp_path: Path, monkeypatch) -> None:
     """query_graph should fallback to knowledge_graph.json when JSONL files are missing."""
     ag_dir = tmp_path / ".antigravity"
     ag_dir.mkdir(parents=True)
@@ -91,6 +91,8 @@ def test_query_graph_after_refresh_without_retrieval_graph_jsonl(tmp_path: Path)
         ),
         encoding="utf-8",
     )
+
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
 
     module = _load_skill_tools_module("graph-retrieval")
     result = module.query_graph("query_graph module", workspace=str(tmp_path))

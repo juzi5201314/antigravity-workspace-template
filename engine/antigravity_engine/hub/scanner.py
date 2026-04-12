@@ -25,6 +25,8 @@ from antigravity_engine.hub._constants import (
     LANG_MAP,
     MEDIA_EXTS,
     SKIP_DIRS,
+    SOURCE_CODE_EXTS,
+    WORKSPACE_ROOT_MODULE_ID,
 )
 from antigravity_engine.hub._utils import env_float, env_int
 
@@ -560,11 +562,30 @@ _MODULE_SKIP_DIRS: frozenset[str] = frozenset({
 })
 
 # Extensions that count as real source code (not just .md/.json/.yml)
-_CODE_EXTS: frozenset[str] = frozenset({
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt",
-    ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".dart",
-    ".lua", ".sh", ".scala", ".zig", ".ex", ".exs", ".clj", ".hs",
-})
+_CODE_EXTS: frozenset[str] = SOURCE_CODE_EXTS
+
+
+def list_root_module_files(root: Path) -> list[Path]:
+    """Return analyzable source files that live directly under *root*.
+
+    Args:
+        root: Project root directory.
+
+    Returns:
+        Sorted list of direct child files that count as source code.
+    """
+    files: list[Path] = []
+    try:
+        for item in sorted(root.iterdir()):
+            if not item.is_file():
+                continue
+            if item.name.startswith("."):
+                continue
+            if item.suffix.lower() in SOURCE_CODE_EXTS:
+                files.append(item)
+    except OSError:
+        return []
+    return files
 
 
 def _dir_has_code(directory: Path, venv_dirs: set[str]) -> bool:
@@ -605,7 +626,8 @@ def detect_modules(root: Path) -> list[str]:
     Returns:
         List of module identifiers.  Two-level modules use underscore
         separators (e.g. ``"engine_hub"``) so they remain safe for
-        agent names and filesystem paths.
+        agent names and filesystem paths. A workspace-root source module
+        is represented by ``WORKSPACE_ROOT_MODULE_ID``.
     """
     skip = _MODULE_SKIP_DIRS.copy()
     venv_dirs = _find_venv_dirs(root)
@@ -643,6 +665,9 @@ def detect_modules(root: Path) -> list[str]:
             modules.append(item.name)
     except OSError:
         pass
+
+    if list_root_module_files(root):
+        modules.append(WORKSPACE_ROOT_MODULE_ID)
 
     return modules
 
@@ -740,8 +765,12 @@ def resolve_module_path(root: Path, module_id: str) -> Path:
         module_id: Module identifier returned by :func:`detect_modules`.
 
     Returns:
-        Absolute path to the module directory.
+        Absolute path to the module directory, or the workspace root for
+        ``WORKSPACE_ROOT_MODULE_ID``.
     """
+    if module_id == WORKSPACE_ROOT_MODULE_ID:
+        return root
+
     # Simple case: top-level directory exists directly
     direct = root / module_id
     if direct.is_dir():

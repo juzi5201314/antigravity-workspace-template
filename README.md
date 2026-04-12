@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP server → Claude Code calls directly
 ```
 
-**Dynamic Multi-Agent Cluster** — During `ag-refresh`, the engine uses **smart functional grouping**: files are grouped by import relationships (from the knowledge graph), directory co-location, and filename prefixes. Source code is pre-loaded directly into agent context (no tool calls needed), and build artifacts are automatically filtered out. Each sub-agent analyzes ~30K tokens of focused, functionally related code in a single LLM call. A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent. Powered by OpenAI Agent SDK + LiteLLM.
+**Dynamic Multi-Agent Cluster** — During `ag-refresh`, the engine uses **smart functional grouping**: files are grouped by import relationships (from the knowledge graph), directory co-location, and filename prefixes. Source code is pre-loaded directly into agent context (no tool calls needed), and build artifacts are automatically filtered out. Each sub-agent analyzes ~30K tokens of focused, functionally related code in a single LLM call and outputs **structured JSON claims with source evidence** (file paths + line ranges). A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent — when structured facts are available, claims are verified against live source before answering. Powered by OpenAI Agent SDK + LiteLLM. **Multi-language**: Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
 
 **GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
@@ -149,14 +149,15 @@ antigravity-workspace-template/
         ├── config.py        # Pydantic configuration
         ├── hub/             # ★ Core: multi-agent cluster
         │   ├── agents.py    #   Router + ModuleAgent + GitAgent
-        │   ├── ask_pipeline.py
-        │   ├── refresh_pipeline.py
+        │   ├── contracts.py #   Pydantic models: claims, evidence, refresh status
+        │   ├── ask_pipeline.py    # structured-facts + legacy-swarm ask
+        │   ├── refresh_pipeline.py # evidence-driven refresh orchestration
         │   ├── ask_tools.py
-        │   ├── scanner.py
+        │   ├── scanner.py   #   multi-language project scanning
+        │   ├── module_grouping.py # smart functional file grouping
         │   ├── structure.py
         │   ├── knowledge_graph.py
         │   ├── retrieval_graph.py
-        │   ├── pipeline.py  #   compatibility re-export shim
         │   └── mcp_server.py
         ├── mcp_client.py    # MCP consumer (connects external tools)
         ├── memory.py        # Persistent interaction memory
@@ -214,7 +215,7 @@ ag-refresh --workspace my-project
 3. Generate `structure.md` structure map
 4. Build knowledge graph (`knowledge_graph.json` + mermaid)
 5. Write document/data/media indexes
-6. **Smart functional grouping** — group files by import graph + directory + prefix, pre-load into context (~30K tokens per sub-agent), filter out build artifacts (dist, bundles, vendor, compiled files). Each sub-agent produces deep analysis in 1 LLM call. Multi-group modules get a merge agent.
+6. **Smart functional grouping** — group files by import graph + directory + prefix, pre-load into context (~30K tokens per sub-agent), filter out build artifacts (dist, bundles, vendor, compiled files). Each sub-agent outputs **structured JSON claims** with evidence spans (file + line range). Multi-group modules merge claims into a unified module facts document (`_facts.json`). Supports Python, TS/JS, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
 7. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
 8. **RegistryAgent** reads all knowledge artifacts → calls LLM → generates `module_registry.md` (2-3 sentence semantic description per module, used by Router for intelligent routing)
 
@@ -224,7 +225,7 @@ ag-refresh --workspace my-project
 ag-ask "How does auth work in this project?"
 ```
 
-Router reads the `structure.md` map and routes questions to the right **ModuleAgent** (pre-loaded with that module's knowledge doc) or **GitAgent** (understands git history). For cross-module questions, agents can handoff to each other.
+When structured module facts (`_facts.json`) are available, the ask pipeline selects relevant claims, verifies them against live source, and composes a grounded answer — no multi-agent swarm needed. Falls back to the legacy Router → ModuleAgent/GitAgent swarm when structured facts are not yet generated. For cross-module questions, agents can handoff to each other.
 
 ---
 
@@ -287,15 +288,17 @@ The engine's core is **a dynamically created Agent cluster per code module**:
  ┌ Group files by import graph               ├──→ Module_engine (pre-loaded engine.md)
  ├ Pre-load ~30K tokens per sub-agent        ├──→ Module_cli (pre-loaded cli.md)
  ├ Filter out build artifacts                ├──→ GitAgent (pre-loaded _git.md)
- ├ Sub-agents analyze in 1 LLM call each     └──→ Agents can handoff to each other
- ├ Merge agent combines outputs
+ ├ Sub-agents → structured JSON claims       └──→ Claims verified against live source
+ ├ Merge claims into _facts.json
  └─ RegistryAgent ────→ registry.md
 ```
 
 **Key innovations:**
 - **Smart grouping**: Files grouped by knowledge-graph import relationships, not arbitrary token splits. Build artifacts (dist/, bundles, vendor, compiled) automatically filtered out.
 - **Pre-loaded context**: Source code injected directly into agent instructions — zero tool calls needed. A module that previously required 16 LLM turns now needs just 1.
+- **Structured evidence**: Each sub-agent outputs JSON claims with evidence spans (file path + line range). Claims are merged per module into `_facts.json`, enabling verification-based answering.
 - **Module registry**: RegistryAgent summarizes each module's responsibilities. Router knows *what each module does*, enabling accurate routing ("database schema" → `src_storage`).
+- **Multi-language**: Module detection works across Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, and C#.
 
 ```bash
 # ModuleAgents self-learn your codebase

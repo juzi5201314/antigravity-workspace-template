@@ -122,6 +122,12 @@ A: 在 `.context/` 创建文件会被自动加载，详见 [零配置特性](ZER
 **Q: 什么是知识中枢？**
 A: 知识中枢 (`ag ask`、`ag refresh`、`ag report`、`ag log-decision`) 在 `.antigravity/` 中维护项目上下文，让所有 AI IDE 更智能。详见主 [README](../../README.md)。
 
+**Q: 模块检测支持哪些语言？**
+A: Python、TypeScript/JavaScript、Go、Rust、Java、Kotlin、Swift、C/C++、C#。扫描器使用统一的扩展名列表跨语言检测模块。
+
+**Q: 什么是结构化 facts？**
+A: 自 2026 年 4 月起，`ag refresh` 为每个模块生成结构化 JSON 声明（claims），附带源码证据（文件路径 + 行范围）。`ag ask` 在回答前先对照源码验证这些声明，降低幻觉率并提高可追溯性。
+
 ## 🤝 贡献
 
 - 报告问题或想法：[GitHub Issues](https://github.com/study8677/antigravity-workspace-template/issues)  
@@ -148,7 +154,7 @@ MIT License，详见仓库根目录 `LICENSE`。
 
 ---
 
-**最后更新：2026 年 3 月**
-**当前版本：Phase 10（知识中枢）✅**
+**最后更新：2026 年 4 月**
+**当前版本：Phase 10（知识中枢）✅ —— 结构化证据管道 + 多语言模块支持**
 
 祝构建愉快！🚀

@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 
 from antigravity_engine.hub._constants import SKIP_DIRS
+from antigravity_engine.hub.contracts import (
+    ClaimVerification,
+    ModuleClaim,
+    ModuleFactsDocument,
+    ModuleRegistryEntry,
+    RefreshStatus,
+    VerificationResult,
+    WorkerEvidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +46,32 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     from agents import set_tracing_disabled
 
     set_tracing_disabled(True)
+
+    structured_enabled = os.environ.get("AG_ASK_FORCE_LEGACY", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }
+    if structured_enabled and _structured_artifacts_available(workspace):
+        print("[1/4] Loading structured module facts...", file=sys.stderr)
+        structured_answer = await _ask_with_structured_facts(workspace, question)
+        if structured_answer is not None:
+            return structured_answer
+        print("[1/4] Structured facts were insufficient; falling back to legacy swarm.", file=sys.stderr)
+
+    return await _ask_with_legacy_swarm(workspace, question)
+
+
+async def _ask_with_legacy_swarm(workspace: Path, question: str) -> str:
+    """Run the legacy multi-agent ask workflow.
+
+    Args:
+        workspace: Project root directory.
+        question: Natural language question about the project.
+
+    Returns:
+        Answer string from the reviewer swarm.
+    """
 
     from antigravity_engine.config import get_settings
     from antigravity_engine.hub.agents import build_reviewer_agent, create_model
@@ -131,6 +166,478 @@ async def ask_pipeline(workspace: Path, question: str) -> str:
     print("[3/3] Synthesizing answer...", file=sys.stderr)
 
     return result.final_output
+
+
+# ---------------------------------------------------------------------------
+# Structured facts path
+# ---------------------------------------------------------------------------
+
+def _structured_artifacts_available(workspace: Path) -> bool:
+    """Return whether structured refresh artifacts exist.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        True when registry, status, and at least one facts artifact exist.
+    """
+    ag_dir = workspace / ".antigravity"
+    modules_dir = ag_dir / "modules"
+    return (
+        (ag_dir / "module_registry.json").is_file()
+        and (ag_dir / "status.json").is_file()
+        and modules_dir.is_dir()
+        and any(modules_dir.glob("*.facts.json"))
+    )
+
+
+async def _ask_with_structured_facts(workspace: Path, question: str) -> str | None:
+    """Answer a question from structured module facts when possible.
+
+    Args:
+        workspace: Project root directory.
+        question: Natural language question.
+
+    Returns:
+        Structured answer string, or ``None`` if the facts path cannot answer
+        confidently enough and should fall back to the legacy swarm.
+    """
+    registry_entries = _load_registry_entries(workspace)
+    refresh_status = _load_refresh_status(workspace)
+    candidates = _select_candidate_modules(question, registry_entries)
+    if not candidates:
+        return None
+
+    print(
+        f"[2/4] Pre-routing to structured modules: {', '.join(entry.module for entry in candidates)}",
+        file=sys.stderr,
+    )
+
+    documents: dict[str, ModuleFactsDocument] = {}
+    worker_outputs: list[WorkerEvidence] = []
+    verification_reports: list[VerificationResult] = []
+
+    for entry in candidates:
+        document = _load_module_facts(workspace, entry.module)
+        if document is None:
+            continue
+        worker_output = _build_worker_evidence(question, entry, document, refresh_status)
+        if not worker_output.claims_used:
+            continue
+        verification = _verify_worker_evidence(
+            workspace=workspace,
+            question=question,
+            document=document,
+            worker_output=worker_output,
+        )
+        documents[entry.module] = document
+        worker_outputs.append(worker_output)
+        verification_reports.append(verification)
+
+    if not verification_reports:
+        return None
+
+    print("[3/4] Verifying structured claims...", file=sys.stderr)
+    answer = _synthesize_structured_answer(
+        question=question,
+        entries=candidates,
+        documents=documents,
+        worker_outputs=worker_outputs,
+        verification_reports=verification_reports,
+    )
+    if answer is None:
+        return None
+
+    print("[4/4] Returning evidence-backed structured answer.", file=sys.stderr)
+    return answer
+
+
+def _load_registry_entries(workspace: Path) -> list[ModuleRegistryEntry]:
+    """Load machine-readable module registry entries.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Parsed registry entries.
+    """
+    registry_path = workspace / ".antigravity" / "module_registry.json"
+    payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    return [ModuleRegistryEntry.model_validate(item) for item in payload]
+
+
+def _load_refresh_status(workspace: Path) -> RefreshStatus:
+    """Load refresh health status from ``.antigravity/status.json``.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Parsed refresh status document.
+    """
+    status_path = workspace / ".antigravity" / "status.json"
+    return RefreshStatus.model_validate_json(status_path.read_text(encoding="utf-8"))
+
+
+def _load_module_facts(
+    workspace: Path,
+    module: str,
+) -> ModuleFactsDocument | None:
+    """Load facts for a single module.
+
+    Args:
+        workspace: Project root directory.
+        module: Module identifier.
+
+    Returns:
+        Parsed facts document, or ``None`` when missing or invalid.
+    """
+    facts_path = workspace / ".antigravity" / "modules" / f"{module}.facts.json"
+    if not facts_path.is_file():
+        return None
+    try:
+        return ModuleFactsDocument.model_validate_json(
+            facts_path.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return None
+
+
+def _select_candidate_modules(
+    question: str,
+    registry_entries: list[ModuleRegistryEntry],
+) -> list[ModuleRegistryEntry]:
+    """Select the top candidate modules for a question.
+
+    Args:
+        question: Natural language question.
+        registry_entries: Machine-readable module registry entries.
+
+    Returns:
+        Up to three candidate modules ordered by score.
+    """
+    question_tokens = _question_tokens(question)
+    scored: list[tuple[int, ModuleRegistryEntry]] = []
+    for entry in registry_entries:
+        score = _score_registry_entry(question_tokens, question.lower(), entry)
+        if score <= 0:
+            continue
+        scored.append((score, entry))
+
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            item[1].status != "success",
+            item[1].module,
+        )
+    )
+    return [entry for _, entry in scored[:3]]
+
+
+def _question_tokens(question: str) -> list[str]:
+    """Tokenize a user question for routing and claim matching.
+
+    Args:
+        question: Natural language question.
+
+    Returns:
+        Lowercase tokens with lightweight normalization.
+    """
+    tokens = re.findall(r"[a-zA-Z0-9_]{2,}", question.lower())
+    return [token for token in tokens if token not in {"the", "and", "for", "how", "what"}]
+
+
+def _score_registry_entry(
+    question_tokens: list[str],
+    question_lower: str,
+    entry: ModuleRegistryEntry,
+) -> int:
+    """Score a registry entry against the current question.
+
+    Args:
+        question_tokens: Tokenized question terms.
+        question_lower: Raw question lowercased.
+        entry: Candidate module registry entry.
+
+    Returns:
+        Integer match score.
+    """
+    score = 0
+    routing_tokens = set(entry.keywords)
+    routing_tokens.update(_question_tokens(entry.summary))
+    for path in entry.top_paths:
+        routing_tokens.update(_question_tokens(path.replace("/", " ").replace(".", " ")))
+
+    for token in question_tokens:
+        if token in routing_tokens:
+            score += 3
+        if token in entry.module.lower():
+            score += 5
+        if any(token in path.lower() for path in entry.top_paths):
+            score += 4
+
+    if entry.module.lower() in question_lower:
+        score += 8
+    return score
+
+
+def _build_worker_evidence(
+    question: str,
+    entry: ModuleRegistryEntry,
+    document: ModuleFactsDocument,
+    refresh_status: RefreshStatus,
+) -> WorkerEvidence:
+    """Select module claims to answer a question.
+
+    Args:
+        question: Natural language question.
+        entry: Selected module registry entry.
+        document: Module facts document.
+        refresh_status: Global refresh status.
+
+    Returns:
+        Structured worker evidence payload.
+    """
+    selected_claims = _select_claims_for_question(question, document)
+    claim_ids = [claim.claim_id for claim in selected_claims]
+    draft_lines = [claim.statement for claim in selected_claims[:3]]
+    module_state = refresh_status.modules.get(entry.module, entry.status)
+    return WorkerEvidence(
+        module=entry.module,
+        draft_answer=" ".join(draft_lines),
+        claims_used=claim_ids,
+        verification_required=module_state != "success",
+    )
+
+
+def _select_claims_for_question(
+    question: str,
+    document: ModuleFactsDocument,
+) -> list[ModuleClaim]:
+    """Pick the most relevant claims for a question.
+
+    Args:
+        question: Natural language question.
+        document: Module facts document.
+
+    Returns:
+        Ordered list of relevant claims.
+    """
+    question_tokens = set(_question_tokens(question))
+    scored: list[tuple[int, ModuleClaim]] = []
+    for claim in document.claims:
+        score = _score_claim(question_tokens, claim)
+        if score <= 0:
+            continue
+        scored.append((score, claim))
+
+    if not scored:
+        fallback = sorted(
+            document.claims,
+            key=lambda claim: (
+                {"high": 0, "medium": 1, "low": 2}.get(claim.importance, 3),
+                claim.claim_id,
+            ),
+        )
+        return fallback[:3]
+
+    scored.sort(key=lambda item: (-item[0], item[1].claim_id))
+    return [claim for _, claim in scored[:5]]
+
+
+def _score_claim(question_tokens: set[str], claim: ModuleClaim) -> int:
+    """Score one claim for relevance to the question.
+
+    Args:
+        question_tokens: Tokenized question terms.
+        claim: Candidate module claim.
+
+    Returns:
+        Integer relevance score.
+    """
+    claim_tokens = set(_question_tokens(claim.statement))
+    claim_tokens.update(_question_tokens(claim.claim_type.replace("_", " ")))
+    for rel_path in claim.source_files:
+        claim_tokens.update(_question_tokens(rel_path.replace("/", " ").replace(".", " ")))
+    overlap = len(question_tokens & claim_tokens)
+    score = overlap * 4
+    if claim.importance == "high":
+        score += 3
+    elif claim.importance == "medium":
+        score += 2
+    else:
+        score += 1
+    return score
+
+
+def _verify_worker_evidence(
+    workspace: Path,
+    question: str,
+    document: ModuleFactsDocument,
+    worker_output: WorkerEvidence,
+) -> VerificationResult:
+    """Verify the worker's selected claims against source evidence.
+
+    Args:
+        workspace: Project root directory.
+        question: Original user question.
+        document: Module facts document.
+        worker_output: Structured worker evidence payload.
+
+    Returns:
+        Verification report for the selected claims.
+    """
+    claim_lookup = {claim.claim_id: claim for claim in document.claims}
+    verifications: list[ClaimVerification] = []
+
+    for claim_id in worker_output.claims_used[:5]:
+        claim = claim_lookup.get(claim_id)
+        if claim is None:
+            verifications.append(
+                ClaimVerification(
+                    claim_id=claim_id,
+                    state="unverified",
+                    notes="Claim was referenced by the worker but not found in module facts.",
+                )
+            )
+            continue
+
+        evidence_results: list[str] = []
+        inspected_evidence: list = []
+        for evidence in claim.evidence[:2]:
+            inspected_evidence.append(evidence)
+            file_path = workspace / evidence.file
+            if not file_path.is_file():
+                evidence_results.append("missing")
+                continue
+            try:
+                lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                evidence_results.append("missing")
+                continue
+
+            snippet = "\n".join(
+                lines[evidence.start_line - 1 : min(len(lines), evidence.end_line)]
+            ).strip()
+            if snippet and evidence.excerpt and snippet == evidence.excerpt.strip():
+                evidence_results.append("verified")
+            elif snippet:
+                evidence_results.append("partial")
+            else:
+                evidence_results.append("missing")
+
+        if "verified" in evidence_results:
+            state = "verified"
+            notes = "Evidence excerpt still matches the referenced source lines."
+        elif "partial" in evidence_results:
+            state = "partially_verified"
+            notes = "Source lines were found, but the stored excerpt no longer matches exactly."
+        else:
+            state = "unverified"
+            notes = "Referenced evidence could not be confirmed from current source files."
+
+        verifications.append(
+            ClaimVerification(
+                claim_id=claim.claim_id,
+                state=state,
+                notes=notes,
+                evidence=inspected_evidence,
+            )
+        )
+
+    return VerificationResult(
+        question=question,
+        module=worker_output.module,
+        claims=verifications,
+        verification_required=worker_output.verification_required,
+    )
+
+
+def _synthesize_structured_answer(
+    question: str,
+    entries: list[ModuleRegistryEntry],
+    documents: dict[str, ModuleFactsDocument],
+    worker_outputs: list[WorkerEvidence],
+    verification_reports: list[VerificationResult],
+) -> str | None:
+    """Compose a final answer from verified structured facts.
+
+    Args:
+        question: Original user question.
+        entries: Routed registry entries.
+        documents: Loaded module facts documents by module id.
+        worker_outputs: Worker claim selections.
+        verification_reports: Verification reports for the selections.
+
+    Returns:
+        Final answer string, or ``None`` if no supported claims remain.
+    """
+    entry_lookup = {entry.module: entry for entry in entries}
+    doc_lookup = documents
+    verification_lookup = {report.module: report for report in verification_reports}
+    worker_lookup = {worker.module: worker for worker in worker_outputs}
+
+    lines: list[str] = []
+    verified_count = 0
+    partial_count = 0
+
+    for module, report in verification_lookup.items():
+        document = doc_lookup.get(module)
+        if document is None:
+            continue
+        claim_lookup = {claim.claim_id: claim for claim in document.claims}
+        entry = entry_lookup[module]
+        worker_output = worker_lookup[module]
+        module_lines: list[str] = []
+
+        if entry.status != "success":
+            module_lines.append(f"`{module}` module knowledge is incomplete ({entry.status}).")
+
+        for claim_verification in report.claims:
+            claim = claim_lookup.get(claim_verification.claim_id)
+            if claim is None:
+                continue
+            citation = _format_claim_citation(claim_verification)
+            if claim_verification.state == "verified":
+                verified_count += 1
+                module_lines.append(f"- {claim.statement}{citation}")
+            elif claim_verification.state == "partially_verified":
+                partial_count += 1
+                module_lines.append(f"- Possibly: {claim.statement}{citation}")
+
+        if not module_lines and worker_output.draft_answer:
+            module_lines.append(worker_output.draft_answer)
+
+        if module_lines:
+            lines.append(f"Module `{module}`:")
+            lines.extend(module_lines)
+
+    if verified_count == 0 and partial_count == 0:
+        return None
+
+    summary = [
+        f"Question: {question}",
+        "",
+        *lines,
+        "",
+        f"Verification summary: {verified_count} verified, {partial_count} partially verified.",
+    ]
+    return "\n".join(summary).strip()
+
+
+def _format_claim_citation(claim_verification: ClaimVerification) -> str:
+    """Format the first evidence span for inline answer citations.
+
+    Args:
+        claim_verification: Verification result for one claim.
+
+    Returns:
+        Short citation string, or an empty string when no evidence exists.
+    """
+    if not claim_verification.evidence:
+        return ""
+    evidence = claim_verification.evidence[0]
+    return f" ({evidence.file}:{evidence.start_line}-{evidence.end_line})"
 
 
 # ---------------------------------------------------------------------------

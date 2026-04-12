@@ -516,37 +516,43 @@ _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE = """\
 You are a RefreshModuleAgent analyzing the **{module}** module, group **{group_name}**.
 
 All source files in your group are pre-loaded below. Read them carefully
-and produce a detailed analysis.
+and extract structured claims with source evidence.
 
-**Your analysis MUST cover:**
-- Purpose and responsibilities of each file (1-2 sentences per file)
-- Key classes/functions: name, purpose, parameters, relationships
-- Internal data flow: how these files call each other
-- Dependencies: what external modules these files import
-- Design patterns used
-- Public API: what these files expose to other modules
+Output MUST be valid JSON with this exact top-level shape:
+{{
+  "module": "{module}",
+  "group_name": "{group_name}",
+  "source_files": ["relative/path.py"],
+  "claims": [
+    {{
+      "claim_id": "{module}.{group_name}.short_identifier",
+      "claim_type": "responsibility|public_api|data_flow|dependency|entrypoint|symbol_definition|testing|configuration",
+      "statement": "Short factual sentence.",
+      "importance": "high|medium|low",
+      "source_files": ["relative/path.py"],
+      "evidence": [
+        {{
+          "file": "relative/path.py",
+          "start_line": 10,
+          "end_line": 25,
+          "excerpt": "Exact source excerpt from the file."
+        }}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Return JSON only. No Markdown fences, no commentary.
+- Create 4-18 claims for the group.
+- Every claim must include at least one evidence span.
+- Evidence must point to pre-loaded files only.
+- Statements must be concrete and source-backed, not speculative.
+- Prefer objective claims over opinions.
 
 **Pre-loaded source files ({file_count} files, ~{token_count} tokens):**
 
 {file_context}
-"""
-
-_REFRESH_MERGE_INSTRUCTIONS = """\
-You are a documentation writer. You are given analyses from multiple
-sub-agents, each covering a different part of the **{module}** module.
-
-Merge them into ONE comprehensive module knowledge document in Markdown.
-
-**Requirements:**
-- Start with a 2-3 sentence module overview
-- Organize by functionality, not by sub-agent
-- Deduplicate overlapping information
-- Preserve all file paths, function names, and line numbers
-- Keep it under 3000 words
-
-**Sub-agent analyses to merge:**
-
-{analyses}
 """
 
 
@@ -568,15 +574,12 @@ def build_refresh_module_swarm_v2(
         workspace: Project root directory.
 
     Returns:
-        List of (module_name, agent_or_agents) tuples.
-        Each entry is either:
-        - (name, Agent): single agent, run directly
-        - (name, list[Agent]): first N-1 are sub-agents, last is merge agent
+        List of ``(module_name, group_entries)`` tuples where each
+        ``group_entries`` item is ``(group_name, FileGroup, Agent)``.
     """
     Agent = _import_agent()
 
     from antigravity_engine.hub.scanner import detect_modules, resolve_module_path
-    from antigravity_engine.hub.ask_tools import create_write_tools
     from antigravity_engine.hub.module_grouping import (
         load_module_files,
         group_files,
@@ -598,12 +601,8 @@ def build_refresh_module_swarm_v2(
         if not groups:
             continue
 
-        write_tools = create_write_tools(workspace, mod)
-        wrapped_write = _wrap_tools(write_tools)
-
-        if len(groups) == 1:
-            # Single group: one agent, pre-loaded, no tools needed except write
-            group = groups[0]
+        group_entries: list[tuple[str, object, object]] = []
+        for i, group in enumerate(groups):
             context = format_group_context(group)
             instructions = _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE.format(
                 module=mod,
@@ -612,43 +611,14 @@ def build_refresh_module_swarm_v2(
                 token_count=group.total_tokens,
                 file_context=context,
             )
-            instructions += (
-                "\n\nWhen your analysis is complete, call ``write_module_doc`` "
-                "with the full Markdown document."
-            )
             agent = Agent(
-                name=f"RefreshModule_{mod}",
+                name=f"RefreshModule_{mod}_sub{i}_{group.name}",
                 instructions=instructions,
                 model=model,
-                tools=wrapped_write,
             )
-            result.append((mod, agent))
+            group_entries.append((group.name, group, agent))
 
-        else:
-            # Multiple groups: sub-agents + merge agent
-            sub_agents: list = []
-            for i, group in enumerate(groups):
-                context = format_group_context(group)
-                instructions = _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE.format(
-                    module=mod,
-                    group_name=group.name,
-                    file_count=len(group.files),
-                    token_count=group.total_tokens,
-                    file_context=context,
-                )
-                instructions += (
-                    "\n\nOutput your analysis as Markdown. Do NOT call any tools. "
-                    "Just return your analysis text."
-                )
-                sub_agent = Agent(
-                    name=f"RefreshModule_{mod}_sub{i}_{group.name}",
-                    instructions=instructions,
-                    model=model,
-                )
-                sub_agents.append((group.name, sub_agent))
-
-            # Merge agent will be created dynamically after sub-agents run
-            result.append((mod, sub_agents, wrapped_write))
+        result.append((mod, group_entries))
 
     return result
 

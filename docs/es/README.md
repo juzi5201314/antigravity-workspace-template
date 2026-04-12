@@ -130,6 +130,12 @@ R: ¡Crea archivos en directorio `.context/`. Se cargan automáticamente! Ver [C
 **P: ¿Qué es el Knowledge Hub?**
 R: El Knowledge Hub (`ag ask`, `ag refresh`, `ag report`, `ag log-decision`) mantiene contexto del proyecto en `.antigravity/`, haciendo todos los IDEs de IA más inteligentes. Ver el [README](../../README.md) principal.
 
+**P: ¿Qué lenguajes soporta la detección de módulos?**
+R: Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++ y C#. El escáner usa una lista unificada de extensiones para detectar módulos en todos los lenguajes soportados.
+
+**P: ¿Qué son los facts estructurados?**
+R: Desde abril 2026, `ag refresh` produce claims JSON estructurados con evidencia de fuente (ruta de archivo + rango de líneas) por módulo. `ag ask` verifica estos claims contra el fuente antes de responder, reduciendo alucinaciones y mejorando la trazabilidad.
+
 ## 🤝 Contribuyendo
 
 Bienvenemos contribuciones en todos los niveles:
@@ -167,7 +173,7 @@ Este proyecto está bajo la licencia **MIT**. Ver [LICENSE](../../LICENSE) para 
 
 ---
 
-**Última Actualización:** Marzo 2026
-**Versión:** Fase 10 (Knowledge Hub) ✅
+**Última Actualización:** Abril 2026
+**Versión:** Fase 10 (Knowledge Hub) ✅ — pipeline de evidencia estructurada + soporte multi-lenguaje
 
 **¡Feliz construcción con Antigravity!** 🚀
