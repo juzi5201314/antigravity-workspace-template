@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+from antigravity_engine.hub._constants import SOURCE_CODE_EXTS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ DEFAULT_TOKEN_BUDGET = 30_000
 MAX_FILES_PER_GROUP = 20
 
 #: Source file extensions to include.
-SOURCE_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx"}
+SOURCE_EXTENSIONS = SOURCE_CODE_EXTS
 
 #: Directories that contain build artifacts, not source code.
 _ARTIFACT_DIRS = {
@@ -135,10 +137,17 @@ def load_module_files(module_path: Path, workspace: Path) -> list[SourceFile]:
     if not module_path.is_dir():
         return files
 
-    for fpath in sorted(module_path.rglob("*")):
+    if module_path == workspace:
+        candidates = sorted(module_path.iterdir())
+    else:
+        candidates = sorted(module_path.rglob("*"))
+
+    for fpath in candidates:
         if not fpath.is_file():
             continue
-        if fpath.suffix not in SOURCE_EXTENSIONS:
+        if module_path == workspace and fpath.parent != workspace:
+            continue
+        if fpath.suffix.lower() not in SOURCE_EXTENSIONS:
             continue
         if _is_artifact(fpath):
             continue

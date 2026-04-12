@@ -1,7 +1,15 @@
 """Tests for hub.scanner — pure Python, no LLM needed."""
 from pathlib import Path
 
-from antigravity_engine.hub.scanner import ScanReport, extract_structure, full_scan, quick_scan
+from antigravity_engine.hub._constants import WORKSPACE_ROOT_MODULE_ID
+from antigravity_engine.hub.scanner import (
+    ScanReport,
+    detect_modules,
+    extract_structure,
+    full_scan,
+    quick_scan,
+    resolve_module_path,
+)
 
 
 def test_full_scan_empty_dir(tmp_path: Path) -> None:
@@ -114,6 +122,45 @@ def test_quick_scan_falls_back_to_full(tmp_path: Path) -> None:
     report = quick_scan(tmp_path, "nonexistent-sha")
     # Should still produce a valid report via fallback
     assert isinstance(report, ScanReport)
+
+
+def test_detect_modules_finds_go_directories(tmp_path: Path) -> None:
+    """Go source directories should be treated as analyzable modules."""
+    cmd_dir = tmp_path / "cmd"
+    internal_dir = tmp_path / "internal"
+    cmd_dir.mkdir()
+    internal_dir.mkdir()
+    (cmd_dir / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    (internal_dir / "service.go").write_text(
+        "package internal\nfunc Service() {}\n",
+        encoding="utf-8",
+    )
+
+    modules = detect_modules(tmp_path)
+
+    assert modules == ["cmd", "internal"]
+
+
+def test_detect_modules_adds_workspace_root_module_for_root_code(tmp_path: Path) -> None:
+    """Root-level source files should become a dedicated root module."""
+    (tmp_path / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+
+    modules = detect_modules(tmp_path)
+
+    assert modules == [WORKSPACE_ROOT_MODULE_ID]
+    assert resolve_module_path(tmp_path, WORKSPACE_ROOT_MODULE_ID) == tmp_path
+
+
+def test_detect_modules_combines_dirs_and_workspace_root(tmp_path: Path) -> None:
+    """Repos can have both top-level modules and root source files."""
+    api_dir = tmp_path / "api"
+    api_dir.mkdir()
+    (api_dir / "handler.go").write_text("package api\nfunc Handle() {}\n", encoding="utf-8")
+    (tmp_path / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+
+    modules = detect_modules(tmp_path)
+
+    assert modules == ["api", WORKSPACE_ROOT_MODULE_ID]
 
 
 # ---------------------------------------------------------------------------

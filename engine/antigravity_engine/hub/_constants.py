@@ -89,6 +89,20 @@ MEDIA_EXTS: frozenset[str] = frozenset({
 TEXT_EXTS: frozenset[str] = frozenset(LANG_MAP) | DOCUMENTATION_EXTS | DATA_EXTS | frozenset({".env", ".log"})
 
 # ---------------------------------------------------------------------------
+# Source code module analysis
+# ---------------------------------------------------------------------------
+
+SOURCE_CODE_EXTS: frozenset[str] = frozenset({
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".kt",
+    ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".dart",
+    ".lua", ".sh", ".scala", ".zig", ".ex", ".exs", ".clj", ".hs",
+})
+"""File extensions treated as analyzable source code for module discovery."""
+
+WORKSPACE_ROOT_MODULE_ID = "__workspace_root__"
+"""Internal module identifier used for source files that live at repo root."""
+
+# ---------------------------------------------------------------------------
 # Framework / tool marker files
 # ---------------------------------------------------------------------------
 
