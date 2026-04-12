@@ -177,3 +177,21 @@ def test_format_scan_report_includes_git() -> None:
     result = _format_scan_report(report)
     assert "fix auth" in result
     assert "add tests" in result
+
+
+def test_build_module_registry_entries_humanizes_workspace_root(tmp_path: Path) -> None:
+    """Workspace-root module summaries should avoid exposing the sentinel id."""
+    from antigravity_engine.hub.contracts import RefreshStatus
+    from antigravity_engine.hub.refresh_pipeline import _build_module_registry_entries
+
+    (tmp_path / "main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+
+    entries = _build_module_registry_entries(
+        tmp_path,
+        RefreshStatus(refresh_run_id="test-run", overall_status="success"),
+    )
+
+    assert len(entries) == 1
+    assert entries[0].module == "__workspace_root__"
+    assert entries[0].summary == "workspace root"
+    assert entries[0].top_paths == ["main.go"]

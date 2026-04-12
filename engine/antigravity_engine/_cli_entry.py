@@ -82,7 +82,9 @@ def refresh_main(argv: Sequence[str] | None = None) -> None:
         import asyncio
         from antigravity_engine.hub.pipeline import refresh_pipeline
 
-        asyncio.run(refresh_pipeline(workspace, args.quick))
+        status = asyncio.run(refresh_pipeline(workspace, args.quick))
+        if getattr(status, "exit_code", 0) != 0:
+            sys.exit(int(status.exit_code))
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
