@@ -111,7 +111,7 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP 服务端 → Claude Code 直接调用
 ```
 
-**动态多智能体集群** —— `ag-refresh` 时，引擎使用**智能功能分组**：基于知识图谱 import 关系、目录共位、文件名前缀将文件聚类。源码直接预加载进 agent 上下文（无需工具调用），构建产物自动过滤。每个 sub-agent 分析约 30K tokens 的聚焦代码，只需 1 次 LLM 调用。**RegistryAgent** 随后汇总所有模块为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，精准路由到对应 ModuleAgent。基于 OpenAI Agent SDK + LiteLLM。
+**动态多智能体集群** —— `ag-refresh` 时，引擎使用**智能功能分组**：基于知识图谱 import 关系、目录共位、文件名前缀将文件聚类。源码直接预加载进 agent 上下文（无需工具调用），构建产物自动过滤。每个 sub-agent 分析约 30K tokens 的聚焦代码，只需 1 次 LLM 调用，输出**结构化 JSON 声明（claims）及源码证据**（文件路径 + 行范围）。**RegistryAgent** 随后汇总所有模块为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，精准路由到对应 ModuleAgent——当结构化 facts 可用时，声明会先对照源码验证再生成回答。基于 OpenAI Agent SDK + LiteLLM。**多语言支持**：Python、TypeScript/JavaScript、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
 
 **GitAgent** —— 专门分析 git 历史的 Agent，了解「谁改了什么、为什么改」。
 
@@ -147,9 +147,12 @@ antigravity-workspace-template/
         ├── config.py        # Pydantic 配置
         ├── hub/             # ★ 核心：多智能体集群
         │   ├── agents.py    #   Router + ModuleAgent + GitAgent
-        │   ├── pipeline.py  #   refresh / ask 编排
+        │   ├── contracts.py #   Pydantic 模型：claims、证据、刷新状态
+        │   ├── ask_pipeline.py    # 结构化 facts + 传统 swarm 问答
+        │   ├── refresh_pipeline.py # 证据驱动的刷新编排
         │   ├── ask_tools.py #   代码探索 + GitNexus 工具
-        │   ├── scanner.py   #   项目扫描 + 模块检测
+        │   ├── scanner.py   #   多语言项目扫描
+        │   ├── module_grouping.py # 智能功能分组
         │   └── mcp_server.py#   MCP 服务端 (ag-mcp)
         ├── mcp_client.py    # MCP 消费端（连接外部工具）
         ├── memory.py        # 持久交互记忆
@@ -198,7 +201,7 @@ ag-refresh --workspace my-project
 3. 生成 `structure.md` 结构图
 4. 构建知识图谱（`knowledge_graph.json` + mermaid）
 5. 写入文档/数据/媒体索引
-6. **智能功能分组** —— 基于 import 图 + 目录 + 前缀分组，代码预加载进 context（每组约 30K tokens），自动过滤构建产物（dist、bundle、vendor、编译文件）。每个 sub-agent 用 1 次 LLM 调用完成深度分析。多组模块用 merge agent 合并输出。
+6. **智能功能分组** —— 基于 import 图 + 目录 + 前缀分组，代码预加载进 context（每组约 30K tokens），自动过滤构建产物（dist、bundle、vendor、编译文件）。每个 sub-agent 输出**结构化 JSON 声明（claims）**及证据片段（文件 + 行范围）。多组模块合并 claims 为统一的模块 facts 文档（`_facts.json`）。支持 Python、TS/JS、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
 7. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
 8. **RegistryAgent** 读取所有知识产物 → 调用 LLM → 生成 `module_registry.md`（每个模块 2-3 句语义描述，供 Router 做智能路由）
 
@@ -208,7 +211,7 @@ ag-refresh --workspace my-project
 ag-ask "这个项目的认证逻辑是怎么实现的？"
 ```
 
-Router 读取 `structure.md` 地图，将问题路由到对应的 **ModuleAgent**（预加载了该模块的知识文档）或 **GitAgent**（了解 git 历史）。跨模块问题时 Agent 间可互相 handoff 通讯。
+当结构化模块 facts（`_facts.json`）可用时，ask 管道直接选取相关声明、对照源码验证后生成有据可查的回答——无需启动多 Agent swarm。若结构化 facts 尚未生成，则回退到传统的 Router → ModuleAgent/GitAgent swarm 路径。跨模块问题时 Agent 间可互相 handoff 通讯。
 
 ---
 
@@ -271,15 +274,17 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
  ┌ 按 import 图分组文件                       ├──→ Module_engine（已加载 engine.md）
  ├ 每组预加载约 30K tokens                    ├──→ Module_cli（已加载 cli.md）
  ├ 自动过滤构建产物                           ├──→ GitAgent（已加载 _git.md）
- ├ Sub-agent 各用 1 次 LLM 调用分析           └──→ Agent 间可互相 handoff
- ├ Merge agent 合并输出
+ ├ Sub-agent → 结构化 JSON claims             └──→ Claims 对照源码验证
+ ├ 合并 claims 为 _facts.json
  └─ RegistryAgent ────→ registry.md
 ```
 
 **核心创新：**
 - **智能分组**：基于知识图谱 import 关系分组，非机械 token 切割。构建产物（dist/、bundle、vendor、编译文件）自动过滤。
 - **预加载上下文**：源码直接注入 agent instructions——零工具调用。之前需要 16 次 LLM 轮次的模块现在只需 1 次。
+- **结构化证据**：每个 sub-agent 输出 JSON claims 及证据片段（文件路径 + 行范围）。Claims 按模块合并为 `_facts.json`，支持验证式回答。
 - **模块 Registry**：RegistryAgent 汇总每个模块的职责描述。Router 知道*每个模块做什么*，实现精准路由（"数据库 schema" → `src_storage`）。
+- **多语言支持**：模块检测覆盖 Python、TypeScript/JavaScript、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
 
 ```bash
 # 模块 Agent 自主学习代码库

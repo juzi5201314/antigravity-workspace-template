@@ -130,6 +130,12 @@ A: Create files in `.context/` directory. They're automatically loaded! See [Zer
 **Q: What is the Knowledge Hub?**
 A: The Knowledge Hub (`ag ask`, `ag refresh`, `ag report`, `ag log-decision`) maintains project context in `.antigravity/`, making all AI IDEs smarter. See the main [README](../../README.md).
 
+**Q: What languages does module detection support?**
+A: Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, and C#. The scanner uses a unified extension list to detect modules across all supported languages.
+
+**Q: What are structured facts?**
+A: Since April 2026, `ag refresh` produces structured JSON claims with source evidence (file path + line range) per module. `ag ask` verifies these claims against live source before answering, reducing hallucination and improving traceability.
+
 ## 🤝 Contributing
 
 We welcome contributions at all levels:
@@ -167,7 +173,7 @@ This project is licensed under the **MIT License**. See [LICENSE](../../LICENSE)
 
 ---
 
-**Latest Update:** March 2026
-**Version:** Phase 10 (Knowledge Hub) ✅
+**Latest Update:** April 2026
+**Version:** Phase 10 (Knowledge Hub) ✅ — structured evidence pipeline + multi-language module support
 
 **Happy building with Antigravity!** 🚀
