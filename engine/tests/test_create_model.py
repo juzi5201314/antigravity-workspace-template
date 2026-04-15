@@ -1,4 +1,5 @@
 """Tests for hub.agents.create_model() LLM backend resolution."""
+import os
 import pytest
 from unittest.mock import patch
 
@@ -30,6 +31,7 @@ def test_google_key_returns_litellm_gemini():
     result = create_model(settings)
     assert result.startswith("litellm/gemini/")
     assert "gemini-2.0-flash-exp" in result
+    assert os.environ.get("GOOGLE_API_KEY") == "goog-key-123"
 
 
 def test_openai_key_only_returns_model_name():
