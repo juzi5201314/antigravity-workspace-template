@@ -66,7 +66,8 @@ def test_init_bootstrap_files_defer_to_agents_md(tmp_path: Path) -> None:
         encoding="utf-8"
     )
 
-    assert "authoritative rulebook" in agents
+    assert "Beautiful is better than ugly." in agents
+    assert "Namespaces are one honking great idea -- let's do more of those!" in agents
     assert "Authoritative behavior rules live in `AGENTS.md`." in claude
     assert "Use `AGENTS.md` as the single authoritative behavior file." in cursor
     assert "`AGENTS.md` is the single source of truth for agent behavior." in context
