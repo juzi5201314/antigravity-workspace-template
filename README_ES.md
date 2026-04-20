@@ -113,11 +113,11 @@ ag init mi-proyecto && cd mi-proyecto
        └──► ag-mcp         Servidor MCP → Claude Code llama directamente
 ```
 
-**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, el motor usa **agrupación funcional inteligente**: archivos agrupados por relaciones de import (del grafo de conocimiento), co-ubicación en directorios y prefijos de nombre. El código fuente se pre-carga directamente en el contexto del agente (sin tool calls), y los artefactos de build se filtran automáticamente. Cada sub-agente analiza ~30K tokens de código enfocado en 1 llamada LLM y produce **claims JSON estructurados con evidencia de fuente** (rutas de archivo + rangos de línea). Un **RegistryAgent** resume todos los módulos en un registry semántico. Durante `ag-ask`, Router lee el registry para entender *de qué es responsable cada módulo* y enruta al ModuleAgent correcto — cuando los facts estructurados están disponibles, los claims se verifican contra el fuente antes de responder. Basado en OpenAI Agent SDK + LiteLLM. **Multi-lenguaje**: Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
+**Clúster Multi-Agente Dinámico** — Durante `ag-refresh`, el motor usa **agrupación funcional inteligente**: archivos agrupados por relaciones de import, co-ubicación en directorios y prefijos de nombre. El código fuente se pre-carga directamente en el contexto del agente (sin tool calls), y los artefactos de build se filtran automáticamente. Cada sub-agente analiza ~30K tokens de código enfocado en 1 llamada LLM y produce un **documento de conocimiento Markdown completo** (`agents/*.md`). Módulos grandes generan múltiples agent docs en paralelo (uno por grupo, sin fusión ni pérdida de información). Un **Map Agent** lee todos los docs y genera `map.md` — un índice de enrutamiento. Durante `ag-ask`, Router lee `map.md` para seleccionar módulos relevantes, luego alimenta sus agent docs a los agentes de respuesta. Para preguntas estructurales (cadenas de llamadas, dependencias, análisis de impacto), el Router consulta automáticamente el grafo de código [GitNexus](https://github.com/abhigyanpatwari/GitNexus). **Completamente agnóstico al lenguaje** — detección de módulos por estructura de directorios pura, análisis de código realizado íntegramente por LLMs. Funciona con cualquier lenguaje de programación.
 
 **GitAgent** — Un agente dedicado a analizar el historial git — entiende quién cambió qué y por qué.
 
-**Mejora GitNexus (opcional)** — Instala GitNexus para desbloquear búsqueda semántica, grafos de llamadas y análisis de impacto para cada ModuleAgent.
+**Enriquecimiento de Grafos GitNexus (opcional)** — Instala [GitNexus](https://github.com/abhigyanpatwari/GitNexus) para desbloquear respuestas enriquecidas con grafos. El Router LLM decide cuándo una pregunta necesita análisis estructural (cadenas de llamadas, dependencias, impacto) y consulta GitNexus automáticamente — combinando datos precisos del grafo con comprensión semántica de los agent docs.
 
 ---
 
@@ -197,15 +197,16 @@ Crea `AGENTS.md` (reglas de comportamiento autoritativas), archivos bootstrap de
 ag-refresh --workspace mi-proyecto
 ```
 
-**Pipeline de 8 pasos:**
+**Pipeline de 9 pasos:**
 1. Escanear codebase (lenguajes, frameworks, estructura)
 2. Pipeline multi-agente genera `conventions.md`
-3. Generar mapa `structure.md`
+3. Generar `structure.md` — árbol de archivos agnóstico al lenguaje con conteos de líneas
 4. Construir grafo de conocimiento (`knowledge_graph.json` + mermaid)
 5. Escribir índices de documentos/datos/media
-6. **Agrupación funcional inteligente** — archivos agrupados por grafo de imports + directorio + prefijo, pre-cargados en contexto (~30K tokens por sub-agente), artefactos de build filtrados automáticamente (dist, bundles, vendor, compilados). Cada sub-agente produce **claims JSON estructurados** con spans de evidencia (archivo + rango de líneas). Módulos multi-grupo fusionan claims en un documento de facts unificado (`_facts.json`). Soporta Python, TS/JS, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
+6. **Análisis completo por LLM** — archivos agrupados por grafo de imports + directorio + prefijo, pre-cargados en contexto (~30K tokens por sub-agente), artefactos de build filtrados automáticamente. Cada sub-agente lee el código fuente completo y produce un **documento de conocimiento Markdown completo** (`agents/*.md`). Módulos grandes generan múltiples agent docs (uno por grupo, sin fusión). Control global de concurrencia API previene rate-limiting. **Completamente agnóstico al lenguaje** — funciona con cualquier lenguaje de programación.
 7. **RefreshGitAgent** analiza historial git, genera `_git_insights.md`
-8. **RegistryAgent** lee todos los artefactos → llama al LLM → genera `module_registry.md` (descripción semántica de 2-3 frases por módulo, usado por el Router para enrutamiento inteligente)
+8. **Map Agent** lee todos los agent docs → genera `map.md` (índice de enrutamiento de módulos con descripciones y temas clave)
+9. **Indexación GitNexus** (opcional) — ejecuta `gitnexus analyze` para construir un grafo de código Tree-sitter (16 lenguajes, cadenas de llamadas, dependencias). Se omite automáticamente si GitNexus no está instalado.
 
 ### 3. `ag-ask` — Q&A basado en Router
 
@@ -213,7 +214,11 @@ ag-refresh --workspace mi-proyecto
 ag-ask "¿Cómo funciona la autenticación en este proyecto?"
 ```
 
-Cuando los facts estructurados del módulo (`_facts.json`) están disponibles, el pipeline de ask selecciona claims relevantes, los verifica contra el fuente y compone una respuesta fundamentada — sin necesidad de swarm multi-agente. Si los facts estructurados aún no se han generado, recurre al swarm legacy Router → ModuleAgent/GitAgent. Para preguntas cross-módulo, los agentes pueden hacer handoff entre sí.
+El pipeline de ask usa una **arquitectura de doble vía**:
+- **Vía semántica**: Router lee `map.md` → selecciona módulos → lee `agents/*.md` → LLM responde con referencias al código. Múltiples agent docs se leen en paralelo, luego un Synthesizer combina las respuestas.
+- **Vía de grafo** (automática): El Router LLM decide si la pregunta necesita análisis estructural → consulta GitNexus para cadenas de llamadas, dependencias o impacto → inyecta datos del grafo en el contexto. Se omite silenciosamente si GitNexus no está instalado.
+
+Si los agent docs aún no se han generado, recurre al swarm legacy Router → ModuleAgent/GitAgent.
 
 ---
 
@@ -270,23 +275,25 @@ claude mcp add antigravity ag-mcp -- --workspace /ruta/al/proyecto
 El núcleo del motor es **un clúster de Agents creado dinámicamente por módulo de código**:
 
 ```
- ag-refresh (v2 — agrupación inteligente):  ag-ask:
+ ag-refresh:                                 ag-ask:
 
- Para cada módulo:                          Router (lee module_registry.md)
- ┌ Agrupar archivos por grafo de imports      ├──→ Module_engine (pre-cargado engine.md)
- ├ Pre-cargar ~30K tokens por sub-agente      ├──→ Module_cli (pre-cargado cli.md)
- ├ Filtrar artefactos de build                ├──→ GitAgent (pre-cargado _git.md)
- ├ Sub-agentes → claims JSON estructurados    └──→ Claims verificados contra fuente
- ├ Fusionar claims en _facts.json
- └─ RegistryAgent ────→ registry.md
+ Para cada módulo:                           Router (lee map.md)
+ ┌ Agrupar archivos por grafo de imports       ├── GRAPH: no → leer agents/*.md → respuesta LLM
+ ├ Pre-cargar ~30K tokens por sub-agente       └── GRAPH: yes → consultar grafo GitNexus
+ ├ Filtrar artefactos de build                       → datos de grafo + agents/*.md → respuesta LLM
+ ├ Sub-agentes → documentos Markdown agent
+ ├ agents/{module}.md (o /group_N.md)
+ ├ Map Agent → map.md
+ └ GitNexus analyze (opcional)
 ```
 
 **Innovaciones clave:**
-- **Agrupación inteligente**: Archivos agrupados por relaciones de import del grafo de conocimiento, no por cortes arbitrarios de tokens. Artefactos de build (dist/, bundles, vendor, compilados) filtrados automáticamente.
-- **Contexto pre-cargado**: Código fuente inyectado directamente en las instrucciones del agente — cero tool calls. Un módulo que antes requería 16 turnos LLM ahora solo necesita 1.
-- **Evidencia estructurada**: Cada sub-agente produce claims JSON con spans de evidencia (ruta de archivo + rango de líneas). Los claims se fusionan por módulo en `_facts.json`, habilitando respuestas basadas en verificación.
-- **Registry de módulos**: RegistryAgent resume las responsabilidades de cada módulo. Router sabe *qué hace cada módulo*, permitiendo enrutamiento preciso ("esquema de BD" → `src_storage`).
-- **Multi-lenguaje**: Detección de módulos funciona con Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++ y C#.
+- **LLM como analizador**: Sin AST ni regex — el código fuente se alimenta directamente al LLM. Funciona con cualquier lenguaje de programación de forma inmediata.
+- **Agrupación inteligente**: Archivos agrupados por relaciones de import, co-ubicación en directorios y prefijos de nombre. Artefactos de build filtrados automáticamente. Límite duro de caracteres (800K) previene desbordamiento de contexto.
+- **Sin pérdida de información**: Módulos grandes producen múltiples `agent.md` (uno por grupo) — sin fusión ni compresión. Durante `ag-ask`, múltiples agent docs son leídos por LLMs en paralelo, luego un Synthesizer combina las respuestas.
+- **Respuestas enriquecidas con grafos**: El Router LLM decide automáticamente cuándo una pregunta necesita datos estructurales (cadenas de llamadas, dependencias, impacto) y consulta GitNexus. Combina relaciones precisas del grafo con comprensión semántica.
+- **Control global de concurrencia API**: `AG_API_CONCURRENCY` limita las llamadas LLM simultáneas entre todos los módulos, previniendo rate-limiting.
+- **Detección de módulos agnóstica al lenguaje**: Estructura de directorios pura — sin `__init__.py` ni marcadores específicos de lenguaje.
 
 ```bash
 # ModuleAgents aprenden tu codebase

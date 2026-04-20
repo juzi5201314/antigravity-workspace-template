@@ -113,11 +113,11 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP 服务端 → Claude Code 直接调用
 ```
 
-**动态多智能体集群** —— `ag-refresh` 时，引擎使用**智能功能分组**：基于知识图谱 import 关系、目录共位、文件名前缀将文件聚类。源码直接预加载进 agent 上下文（无需工具调用），构建产物自动过滤。每个 sub-agent 分析约 30K tokens 的聚焦代码，只需 1 次 LLM 调用，输出**结构化 JSON 声明（claims）及源码证据**（文件路径 + 行范围）。**RegistryAgent** 随后汇总所有模块为语义 registry。`ag-ask` 时，Router 根据 registry 理解*每个模块负责什么*，精准路由到对应 ModuleAgent——当结构化 facts 可用时，声明会先对照源码验证再生成回答。基于 OpenAI Agent SDK + LiteLLM。**多语言支持**：Python、TypeScript/JavaScript、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
+**动态多智能体集群** —— `ag-refresh` 时，引擎使用**智能功能分组**：基于 import 关系、目录共位、文件名前缀将文件聚类。源码直接预加载进 agent 上下文（无需工具调用），构建产物自动过滤。每个 sub-agent 分析约 30K tokens 的聚焦代码，只需 1 次 LLM 调用，输出**全面的 Markdown 知识文档**（`agents/*.md`）。大模块由多个 sub-agent 并行分析——每个输出独立 agent.md（不合并、不压缩）。**Map Agent** 读取所有 agent 文档生成 `map.md` 路由索引。`ag-ask` 时，Router 读取 `map.md` 选择相关模块，将 agent 文档喂给 answer agent。对于结构性问题（调用链、依赖关系、影响分析），Router 自动查询 [GitNexus](https://github.com/abhigyanpatwari/GitNexus) 代码图谱获取精确关系。**完全语言无关** —— 模块检测使用纯目录结构，代码分析完全由 LLM 完成。支持任何编程语言。
 
 **GitAgent** —— 专门分析 git 历史的 Agent，了解「谁改了什么、为什么改」。
 
-**GitNexus 增强（可选）** —— 安装 GitNexus 后自动检测，为 ModuleAgent 解锁语义搜索、调用图、变更影响分析。
+**GitNexus 图谱增强（可选）** —— 安装 [GitNexus](https://github.com/abhigyanpatwari/GitNexus) 后自动解锁图谱增强回答。Router LLM 判断问题是否需要结构分析（调用链、依赖、影响范围），自动查询 GitNexus —— 将精确的图谱数据与 agent 文档的语义理解结合。
 
 ---
 
@@ -150,8 +150,8 @@ antigravity-workspace-template/
         ├── hub/             # ★ 核心：多智能体集群
         │   ├── agents.py    #   Router + ModuleAgent + GitAgent
         │   ├── contracts.py #   Pydantic 模型：claims、证据、刷新状态
-        │   ├── ask_pipeline.py    # 结构化 facts + 传统 swarm 问答
-        │   ├── refresh_pipeline.py # 证据驱动的刷新编排
+        │   ├── ask_pipeline.py    # agent.md + 图谱增强问答
+        │   ├── refresh_pipeline.py # LLM 驱动刷新 → agents/*.md + map.md
         │   ├── ask_tools.py #   代码探索 + GitNexus 工具
         │   ├── scanner.py   #   多语言项目扫描
         │   ├── module_grouping.py # 智能功能分组
@@ -197,15 +197,16 @@ ag init my-project --force
 ag-refresh --workspace my-project
 ```
 
-**8 步流程：**
+**9 步流程：**
 1. 扫描代码库（语言、框架、结构）
 2. 多 Agent 管道生成 `conventions.md`
-3. 生成 `structure.md` 结构图
+3. 生成 `structure.md` —— 语言无关的文件树（含行数统计）
 4. 构建知识图谱（`knowledge_graph.json` + mermaid）
 5. 写入文档/数据/媒体索引
-6. **智能功能分组** —— 基于 import 图 + 目录 + 前缀分组，代码预加载进 context（每组约 30K tokens），自动过滤构建产物（dist、bundle、vendor、编译文件）。每个 sub-agent 输出**结构化 JSON 声明（claims）**及证据片段（文件 + 行范围）。多组模块合并 claims 为统一的模块 facts 文档（`_facts.json`）。支持 Python、TS/JS、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
+6. **LLM 全量代码分析** —— 基于 import 图 + 目录 + 前缀分组，代码预加载进 context（每组约 30K tokens），自动过滤构建产物。每个 sub-agent 读取完整源码，输出**全面的 Markdown 知识文档**（`agents/*.md`）。大模块生成多个 agent 文档（每组一个，不合并）。全局 API 并发控制防止限流。**完全语言无关** —— 支持任何编程语言。
 7. **RefreshGitAgent** 分析 git 历史，生成 `_git_insights.md`
-8. **RegistryAgent** 读取所有知识产物 → 调用 LLM → 生成 `module_registry.md`（每个模块 2-3 句语义描述，供 Router 做智能路由）
+8. **Map Agent** 读取所有 agent 文档 → 生成 `map.md`（模块路由索引，含描述和关键词）
+9. **GitNexus 索引**（可选）—— 运行 `gitnexus analyze` 构建 Tree-sitter 代码图谱（16 种语言，调用链、依赖关系）。未安装 GitNexus 时自动跳过。
 
 ### 3. `ag-ask` — Router 路由问答
 
@@ -213,7 +214,11 @@ ag-refresh --workspace my-project
 ag-ask "这个项目的认证逻辑是怎么实现的？"
 ```
 
-当结构化模块 facts（`_facts.json`）可用时，ask 管道直接选取相关声明、对照源码验证后生成有据可查的回答——无需启动多 Agent swarm。若结构化 facts 尚未生成，则回退到传统的 Router → ModuleAgent/GitAgent swarm 路径。跨模块问题时 Agent 间可互相 handoff 通讯。
+Ask 管道采用**双路架构**：
+- **语义路径**：Router 读取 `map.md` → 选择模块 → 读取 `agents/*.md` → LLM 回答并引用代码。多个 agent 文档由并行 LLM 读取，然后由 Synthesizer 合并答案。
+- **图谱路径**（自动）：Router LLM 判断问题是否需要结构分析 → 查询 GitNexus 获取调用链、依赖、影响范围 → 将图谱数据注入回答上下文。未安装 GitNexus 时静默跳过。
+
+若 agent 文档尚未生成，则回退到传统的 Router → ModuleAgent/GitAgent swarm 路径。
 
 ---
 
@@ -270,23 +275,25 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 引擎的核心是**按代码模块动态创建的 Agent 集群**：
 
 ```
- ag-refresh（v2 — 智能分组）：              ag-ask 时：
+ ag-refresh：                                ag-ask：
 
- 对每个模块：                               Router（读 module_registry.md）
- ┌ 按 import 图分组文件                       ├──→ Module_engine（已加载 engine.md）
- ├ 每组预加载约 30K tokens                    ├──→ Module_cli（已加载 cli.md）
- ├ 自动过滤构建产物                           ├──→ GitAgent（已加载 _git.md）
- ├ Sub-agent → 结构化 JSON claims             └──→ Claims 对照源码验证
- ├ 合并 claims 为 _facts.json
- └─ RegistryAgent ────→ registry.md
+ 对每个模块：                                Router（读 map.md）
+ ┌ 按 import 图分组文件                        ├── GRAPH: no → 读 agents/*.md → LLM 回答
+ ├ 每组预加载约 30K tokens                     └── GRAPH: yes → 查询 GitNexus 图谱
+ ├ 自动过滤构建产物                                  → 图谱数据 + agents/*.md → LLM 回答
+ ├ Sub-agent → Markdown agent 文档
+ ├ agents/{module}.md（或 /group_N.md）
+ ├ Map Agent → map.md
+ └ GitNexus analyze（可选）
 ```
 
 **核心创新：**
-- **智能分组**：基于知识图谱 import 关系分组，非机械 token 切割。构建产物（dist/、bundle、vendor、编译文件）自动过滤。
-- **预加载上下文**：源码直接注入 agent instructions——零工具调用。之前需要 16 次 LLM 轮次的模块现在只需 1 次。
-- **结构化证据**：每个 sub-agent 输出 JSON claims 及证据片段（文件路径 + 行范围）。Claims 按模块合并为 `_facts.json`，支持验证式回答。
-- **模块 Registry**：RegistryAgent 汇总每个模块的职责描述。Router 知道*每个模块做什么*，实现精准路由（"数据库 schema" → `src_storage`）。
-- **多语言支持**：模块检测覆盖 Python、TypeScript/JavaScript、Go、Rust、Java、Kotlin、Swift、C/C++、C#。
+- **LLM 即分析器**：不使用 AST 解析或正则 —— 源码直接喂给 LLM 分析。开箱即用支持任何编程语言。
+- **智能分组**：基于 import 关系、目录共位、文件名前缀分组。构建产物自动过滤。字符硬限（800K）防止上下文溢出。
+- **零信息损失**：大模块生成多个 `agent.md`（每组一个）—— 不合并、不压缩。`ag-ask` 时多个 agent 文档由并行 LLM 读取，然后 Synthesizer 合并答案。
+- **图谱增强回答**：Router LLM 自动判断问题是否需要结构数据（调用链、依赖、影响范围），查询 GitNexus。将精确的图谱关系与语义理解结合。
+- **全局 API 并发控制**：`AG_API_CONCURRENCY` 限制所有模块的同时 LLM 调用数，防止限流。
+- **语言无关模块检测**：纯目录结构 —— 不需要 `__init__.py` 或任何语言特定标记。
 
 ```bash
 # 模块 Agent 自主学习代码库
@@ -328,33 +335,47 @@ ag log-decision "使用 PostgreSQL" "团队有丰富经验"
 </details>
 
 <details>
-<summary><b>GitNexus 集成</b> — 可选的深度代码智能增强（第三方工具）</summary>
+<summary><b>GitNexus 图谱增强</b> — 结构性问题的自动智能增强</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 是一个**第三方工具**，通过 Tree-sitter AST 解析构建代码知识图谱。Antigravity 提供了内置的集成接口——当你单独安装 GitNexus 后，`ag-ask` 会自动检测并解锁三个额外工具：
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) 通过 **Tree-sitter AST 解析**构建代码知识图谱（支持 16 种语言）。安装后，Antigravity 在两个层面集成：
 
-| 工具 | 功能 |
-|:-----|:-----|
-| `gitnexus_query` | 混合搜索（BM25 + 语义）— 语义查询远优于 grep |
+**1. Refresh 时自动索引** —— `ag-refresh` 的第 9 步自动运行 `gitnexus analyze` 构建/更新代码图谱。未安装 GitNexus 时静默跳过。
+
+**2. Ask 时图谱增强** —— Router LLM 判断问题是否需要结构分析：
+- "认证模块做什么？" → `GRAPH: no` → 纯 agent.md 回答
+- "谁调用了 handleLogin？" → `GRAPH: yes` → 查询 GitNexus → 图谱数据 + agent.md → 增强回答
+
+```
+用户: "gateway 里哪些函数调用了 send 方法？"
+
+Router: MODULES: gateway, tests_gateway | GRAPH: yes
+  → GitNexus 返回调用链及置信度分数
+  → Agent 文档提供语义上下文（每个调用者做什么）
+  → 组合回答：精确调用链 + 文件路径 + 行号 + 用途说明
+```
+
+| 能力 | 提供内容 |
+|:-----|:---------|
+| `gitnexus_query` | 混合搜索（BM25 + 语义）—— 返回执行流而非仅文件 |
 | `gitnexus_context` | 符号 360° 视图：调用者、被调用者、引用、定义 |
-| `gitnexus_impact` | 变更爆炸半径分析 — 修改一个符号会影响什么？ |
+| `gitnexus_impact` | 变更爆炸半径分析 —— 修改一个符号会影响什么？ |
 
-> **注意：** GitNexus **不随** Antigravity 一起安装。它是一个独立项目，需要通过 npm 单独安装。Antigravity 无需 GitNexus 即可完整运行——GitNexus 只是一个可选增强，用于更深层的代码理解。
+> **注意：** GitNexus **不随** Antigravity 一起安装。需要通过 npm 单独安装（`npm install -g gitnexus`）。Antigravity 无需 GitNexus 即可完整运行 —— 未安装时所有图谱功能静默跳过，零开销。
 
-**启用方式（3 步）：**
+**启用方式：**
 
 ```bash
 # 1. 安装 GitNexus（需要 Node.js）
 npm install -g gitnexus
 
-# 2. 索引你的项目（一次性操作，在本地创建知识图谱）
-cd my-project
-gitnexus analyze .
+# 2. 刷新（自动索引代码图谱）
+ag-refresh --workspace my-project
 
-# 3. 像平常一样使用 ag-ask — GitNexus 工具会被自动检测到
-ag-ask "认证流程是怎么工作的？"
+# 3. 提问 — 图谱增强自动生效
+ag-ask "谁调用了 gateway 适配器的 send 方法？"
+# Router 判断: GRAPH: yes → 查询 GitNexus → 增强回答
 ```
 
-**集成原理：** `ask_tools.py` 检查系统中是否有 `gitnexus` CLI。如果找到，就注册 `gitnexus_query`/`gitnexus_context`/`gitnexus_impact` 作为每个 ModuleAgent 的额外工具。如果未找到，这些工具不会出现——零开销、无报错。
 </details>
 
 <details>
@@ -449,7 +470,9 @@ OPENAI_MODEL=your-model
 
 AG_ASK_TIMEOUT_SECONDS=120
 AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
-AG_MODULE_AGENT_TIMEOUT_SECONDS=90
+AG_MODULE_AGENT_TIMEOUT_SECONDS=300
+AG_API_CONCURRENCY=5           # 最大同时 LLM 调用数（防止限流）
+AG_MAX_GROUP_CHARS=800000      # 单组原始字符硬限（防止上下文溢出）
 ```
 
 > 支持任何 OpenAI 兼容供应商：**NVIDIA**、**OpenAI**、**Ollama**、**vLLM**、**LM Studio**、**Groq**、**MiniMax** 等。
