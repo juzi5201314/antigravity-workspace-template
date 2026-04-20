@@ -1724,7 +1724,7 @@ async def _generate_map_md(workspace: Path, model: str) -> str:
 
     # Split agent docs into context-sized batches.
     # Each batch gets its own Map Agent call; results are concatenated.
-    max_batch_chars = int(os.environ.get("AG_MAP_BATCH_CHARS", "400000"))
+    max_batch_chars = int(os.environ.get("AG_MAP_BATCH_CHARS", "30000"))
     max_doc_chars = 20_000  # truncate individual docs to keep batches balanced
 
     batches: list[list[str]] = []
