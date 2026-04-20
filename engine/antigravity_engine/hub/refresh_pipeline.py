@@ -456,8 +456,12 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
     if current_sha:
         sha_file.write_text(current_sha, encoding="utf-8")
 
+    # GitNexus is optional — exclude it from overall status calculation
+    non_optional_stages = {
+        k: v for k, v in refresh_status.stages.items() if k != "gitnexus"
+    }
     refresh_status.overall_status = _aggregate_states(
-        list(refresh_status.stages.values()) + list(refresh_status.modules.values()),
+        list(non_optional_stages.values()) + list(refresh_status.modules.values()),
         skipped_state="success",
     )
     _write_refresh_status(ag_dir, refresh_status)
@@ -1718,34 +1722,70 @@ async def _generate_map_md(workspace: Path, model: str) -> str:
     if not agent_docs:
         return _build_fallback_map_md(workspace)
 
-    # Build prompt with all agent docs
-    # Estimate tokens: ~4 chars per token
-    max_context_tokens = 100_000  # conservative limit
-    doc_parts: list[str] = []
-    total_chars = 0
+    # Split agent docs into context-sized batches.
+    # Each batch gets its own Map Agent call; results are concatenated.
+    max_batch_chars = int(os.environ.get("AG_MAP_BATCH_CHARS", "400000"))
+    max_doc_chars = 20_000  # truncate individual docs to keep batches balanced
+
+    batches: list[list[str]] = []
+    current_batch: list[str] = []
+    current_chars = 0
+
     for name, content in agent_docs:
         header = f"\n---\n## Agent: {name}\n"
-        # Truncate very long docs to keep context manageable
-        truncated = content[:20_000] if len(content) > 20_000 else content
+        truncated = content[:max_doc_chars] if len(content) > max_doc_chars else content
         part = header + truncated
-        if total_chars + len(part) > max_context_tokens * 4:
-            break
-        doc_parts.append(part)
-        total_chars += len(part)
+        if current_batch and current_chars + len(part) > max_batch_chars:
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+        current_batch.append(part)
+        current_chars += len(part)
 
-    prompt = "Create a map.md from these module knowledge documents:\n" + "\n".join(doc_parts)
+    if current_batch:
+        batches.append(current_batch)
 
     map_agent = build_map_agent(model)
     map_timeout = float(os.environ.get("AG_MAP_AGENT_TIMEOUT_SECONDS", "90"))
-    if map_timeout > 0:
-        result = await asyncio.wait_for(
-            Runner.run(map_agent, prompt),
-            timeout=map_timeout,
-        )
-    else:
-        result = await Runner.run(map_agent, prompt)
 
-    return str(result.final_output).strip()
+    async def _run_map_batch(batch: list[str], batch_idx: int) -> str:
+        prompt = "Create a map.md from these module knowledge documents:\n" + "\n".join(batch)
+        if map_timeout > 0:
+            result = await asyncio.wait_for(
+                Runner.run(map_agent, prompt),
+                timeout=map_timeout,
+            )
+        else:
+            result = await Runner.run(map_agent, prompt)
+        return str(result.final_output).strip()
+
+    if len(batches) == 1:
+        return await _run_map_batch(batches[0], 0)
+
+    # Multiple batches → parallel Map Agent calls → concatenate
+    print(
+        f"  → Map Agent: {len(agent_docs)} docs split into {len(batches)} batches",
+        file=sys.stderr,
+    )
+    partial_maps = await asyncio.gather(
+        *[_run_map_batch(batch, i) for i, batch in enumerate(batches)]
+    )
+    # Concatenate: keep the first header, strip duplicate headers from subsequent
+    combined_parts: list[str] = []
+    for i, partial in enumerate(partial_maps):
+        if i == 0:
+            combined_parts.append(partial)
+        else:
+            # Strip leading "# Module Map" header from subsequent batches
+            lines = partial.splitlines()
+            start = 0
+            for j, line in enumerate(lines):
+                if line.strip().startswith("## "):
+                    start = j
+                    break
+            combined_parts.append("\n".join(lines[start:]))
+
+    return "\n\n".join(combined_parts)
 
 
 def _build_fallback_map_md(workspace: Path) -> str:
