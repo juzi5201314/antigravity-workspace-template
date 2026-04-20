@@ -259,7 +259,7 @@ def test_extract_structure_empty_dir(tmp_path: Path) -> None:
 
 
 def test_extract_structure_python_file(tmp_path: Path) -> None:
-    """Python files are parsed with ast — classes and functions extracted."""
+    """Python files appear in structure with line count (language-agnostic)."""
     code = '''\
 """Auth module for JWT tokens."""
 
@@ -282,14 +282,12 @@ def login(username: str, password: str) -> bool:
     (tmp_path / "auth.py").write_text(code, encoding="utf-8")
     result = extract_structure(tmp_path)
     assert "auth.py" in result
-    assert "TokenManager" in result
-    assert "login" in result
-    assert "username" in result
-    assert "jwt" in result or "import" in result
+    assert "Python" in result
+    assert "lines" in result
 
 
 def test_extract_structure_js_file(tmp_path: Path) -> None:
-    """JS/TS files are parsed with regex — exports detected."""
+    """JS files appear in structure with line count (language-agnostic)."""
     code = '''\
 import express from "express";
 
@@ -304,12 +302,12 @@ export class AuthController {
     (tmp_path / "app.js").write_text(code, encoding="utf-8")
     result = extract_structure(tmp_path)
     assert "app.js" in result
-    assert "handleLogin" in result
-    assert "AuthController" in result
+    assert "JavaScript" in result
+    assert "lines" in result
 
 
 def test_extract_structure_go_file(tmp_path: Path) -> None:
-    """Go files are parsed with regex — funcs and types detected."""
+    """Go files appear in structure with line count (language-agnostic)."""
     code = '''\
 package auth
 
@@ -324,8 +322,8 @@ type UserService struct {
     (tmp_path / "auth.go").write_text(code, encoding="utf-8")
     result = extract_structure(tmp_path)
     assert "auth.go" in result
-    assert "Login" in result
-    assert "UserService" in result
+    assert "Go" in result
+    assert "lines" in result
 
 
 def test_extract_structure_nested_dirs(tmp_path: Path) -> None:
@@ -346,5 +344,5 @@ def test_extract_structure_skips_node_modules(tmp_path: Path) -> None:
     (nm / "index.js").write_text("export function secret() {}", encoding="utf-8")
     (tmp_path / "app.js").write_text("export function main() {}", encoding="utf-8")
     result = extract_structure(tmp_path)
-    assert "secret" not in result
-    assert "main" in result
+    assert "node_modules" not in result
+    assert "app.js" in result

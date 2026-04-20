@@ -334,6 +334,49 @@ Write in Markdown. Be specific — cite commit hashes, dates, and file paths.
 """
 
 
+_MAP_AGENT_INSTRUCTIONS = """\
+You are a Map Agent that creates a routing index for a codebase knowledge system.
+
+You are given knowledge documents (agent.md files) produced by module analysis
+agents. Each document describes one module or one group within a module.
+
+Your job: produce a concise **map.md** that a Router agent can use to decide
+which module knowledge to consult when answering a question.
+
+FORMAT — one entry per module/group:
+
+## module_name
+**Path:** `path/to/module/`
+**Description:** 1-2 sentences describing what this module does.
+**Key topics:** comma-separated keywords (5-10 tags)
+
+Rules:
+- Start with `# Module Map`
+- Cover EVERY module/group you are given — do not skip any
+- Descriptions must be concrete — mention specific technologies, protocols, patterns
+- Key topics should be what a user might ask about
+- Keep each entry SHORT — the Router reads the ENTIRE map
+- Output ONLY Markdown. No commentary, no preamble.
+"""
+
+
+def build_map_agent(model: str):
+    """Build the Map Agent that generates map.md from agent.md files.
+
+    Args:
+        model: Model identifier string.
+
+    Returns:
+        The Map Agent. Pass it to Runner.run() with agent.md contents as input.
+    """
+    Agent = _import_agent()
+    return Agent(
+        name="MapAgent",
+        instructions=_MAP_AGENT_INSTRUCTIONS,
+        model=model,
+    )
+
+
 def _wrap_tools(tool_dict: dict) -> list:
     """Wrap plain functions with the Agent SDK ``function_tool`` decorator.
 
@@ -382,21 +425,48 @@ def _resolve_module_path(workspace: Path, module_id: str) -> Path:
 
 
 def _read_module_knowledge(workspace: Path, module_name: str) -> str:
-    """Read a pre-generated module knowledge document.
+    """Read pre-generated module knowledge document(s).
+
+    Checks the new ``agents/`` directory first (single file or
+    multi-group directory), then falls back to legacy ``modules/``.
 
     Args:
         workspace: Project root directory.
         module_name: Module name (matches filename without .md).
 
     Returns:
-        Content of the module document, or a fallback message.
+        Content of the module document(s), or a fallback message.
     """
-    doc_path = workspace / ".antigravity" / "modules" / f"{module_name}.md"
-    if doc_path.is_file():
+    ag_dir = workspace / ".antigravity"
+
+    # New format: agents/{module}.md (single group)
+    agent_md = ag_dir / "agents" / f"{module_name}.md"
+    if agent_md.is_file():
         try:
-            return doc_path.read_text(encoding="utf-8")
+            return agent_md.read_text(encoding="utf-8")
         except OSError:
             pass
+
+    # New format: agents/{module}/ (multi-group directory)
+    agent_dir = ag_dir / "agents" / module_name
+    if agent_dir.is_dir():
+        parts: list[str] = []
+        for md_file in sorted(agent_dir.glob("*.md")):
+            try:
+                parts.append(md_file.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+        if parts:
+            return "\n\n---\n\n".join(parts)
+
+    # Legacy format: modules/{module}.md
+    legacy_path = ag_dir / "modules" / f"{module_name}.md"
+    if legacy_path.is_file():
+        try:
+            return legacy_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+
     return "(No pre-generated knowledge available. Use your tools to explore.)"
 
 
@@ -434,6 +504,24 @@ def _read_structure_map(workspace: Path) -> str:
         except OSError:
             pass
     return "(No structure map available. Run `ag-refresh --workspace /path/to/project` first.)"
+
+
+def _read_map_md(workspace: Path) -> str | None:
+    """Read the map.md routing index (generated during refresh step 8).
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Content of map.md, or None if not available.
+    """
+    doc_path = workspace / ".antigravity" / "map.md"
+    if doc_path.is_file():
+        try:
+            return doc_path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+    return None
 
 
 def _read_module_registry(workspace: Path) -> str | None:
@@ -517,39 +605,24 @@ _REFRESH_PRELOADED_INSTRUCTIONS_TEMPLATE = """\
 You are a RefreshModuleAgent analyzing the **{module}** module, group **{group_name}**.
 
 All source files in your group are pre-loaded below. Read them carefully
-and extract structured claims with source evidence.
+and produce a comprehensive Markdown knowledge document.
 
-Output MUST be valid JSON with this exact top-level shape:
-{{
-  "module": "{module}",
-  "group_name": "{group_name}",
-  "source_files": ["relative/path.py"],
-  "claims": [
-    {{
-      "claim_id": "{module}.{group_name}.short_identifier",
-      "claim_type": "responsibility|public_api|data_flow|dependency|entrypoint|symbol_definition|testing|configuration",
-      "statement": "Short factual sentence.",
-      "importance": "high|medium|low",
-      "source_files": ["relative/path.py"],
-      "evidence": [
-        {{
-          "file": "relative/path.py",
-          "start_line": 10,
-          "end_line": 25,
-          "excerpt": "Exact source excerpt from the file."
-        }}
-      ]
-    }}
-  ]
-}}
+Your document MUST cover (for every file in the group):
+- **What each file does** — purpose, responsibilities (1-2 sentences per file)
+- **Key classes/functions** — name, purpose, parameters, return types
+- **Data flow** — how components call each other, what data passes between them
+- **Dependencies** — what external/internal modules each file imports and why
+- **Design patterns** — any notable patterns (factory, observer, protocol, etc.)
+- **Public API** — what this code exposes to other modules
+- **Configuration** — environment variables, settings, constants
 
 Rules:
-- Return JSON only. No Markdown fences, no commentary.
-- Create 4-18 claims for the group.
-- Every claim must include at least one evidence span.
-- Evidence must point to pre-loaded files only.
-- Statements must be concrete and source-backed, not speculative.
-- Prefer objective claims over opinions.
+- Output ONLY Markdown. No JSON, no code fences around the whole output.
+- Be specific — cite file paths, function names, class names, line numbers.
+- Cover ALL pre-loaded files, not just the important ones.
+- Be thorough but concise — this document will be read by other agents.
+- Use headers (##, ###) to organize by file or topic.
+- Start with a brief overview paragraph of the group's overall purpose.
 
 **Pre-loaded source files ({file_count} files, ~{token_count} tokens):**
 
@@ -776,23 +849,27 @@ def build_ask_swarm(
     )
     workers.append(full_worker)
 
-    # Build Router — prefers module_registry.md (semantic) over structure.md (file list)
+    # Build Router — prefers map.md over module_registry.md over structure.md
     module_list = ", ".join(f"Module_{m}" for m in areas)
-    registry = _read_module_registry(workspace)
-    if registry:
-        # Registry available: Router gets semantic module descriptions
-        # (much shorter and more useful for routing than 1000+ line structure.md)
+    map_content = _read_map_md(workspace)
+    if map_content:
         router_context = (
             f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
-            f"**Module Registry — what each agent knows:**\n{registry}"
+            f"**Module Map — what each agent knows:**\n{map_content}"
         )
     else:
-        # Fallback: use structure.md (file listing)
-        structure_map = _read_structure_map(workspace)
-        router_context = (
-            f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
-            f"**Project Structure Map:**\n{structure_map}"
-        )
+        registry = _read_module_registry(workspace)
+        if registry:
+            router_context = (
+                f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
+                f"**Module Registry — what each agent knows:**\n{registry}"
+            )
+        else:
+            structure_map = _read_structure_map(workspace)
+            router_context = (
+                f"\n\n**Available agents:** {module_list}, GitAgent, Module_full_project\n\n"
+                f"**Project Structure Map:**\n{structure_map}"
+            )
     router_instructions = _ROUTER_INSTRUCTIONS + router_context
     router_instructions += mcp_capability_note
     if skill_docs.strip():

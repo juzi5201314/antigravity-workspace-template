@@ -6,7 +6,6 @@ workflows into dedicated modules.
 from __future__ import annotations
 
 import asyncio
-import ast
 import json
 import logging
 import os
@@ -225,11 +224,22 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
         mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
         _mod_sem = asyncio.Semaphore(mod_concurrency)
+        # Global API call semaphore: limits total concurrent LLM calls
+        # across ALL modules and groups to avoid rate-limiting.
+        api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
+        _api_sem = asyncio.Semaphore(api_concurrency)
+        agents_dir = ag_dir / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        # Keep legacy modules dir for backward compat (will be removed in Phase 5)
         modules_dir = ag_dir / "modules"
         modules_dir.mkdir(parents=True, exist_ok=True)
 
         async def _run_module(entry: tuple) -> tuple[str, str]:
-            """Run one module's group agents and persist structured artifacts.
+            """Run one module's group agents and persist agent.md artifacts.
+
+            For single-group modules: writes ``agents/{module}.md``.
+            For multi-group modules: writes ``agents/{module}/group_N.md``
+            (one per group, no merging).
 
             Args:
                 entry: Tuple of module name and group agent entries.
@@ -239,8 +249,9 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
             """
             async with _mod_sem:
                 mod_name, group_entries = entry
+                num_groups = len(group_entries)
                 print(
-                    f"  → RefreshModule_{mod_name} ({len(group_entries)} groups)...",
+                    f"  → RefreshModule_{mod_name} ({num_groups} groups)...",
                     file=sys.stderr,
                 )
 
@@ -248,8 +259,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
                     group_name: str,
                     group,
                     sagent: object,
-                ) -> tuple[str, GroupFactsDocument | None, str | None]:
-                    """Run one group agent and parse/fallback its facts output.
+                ) -> tuple[str, str | None, str | None]:
+                    """Run one group agent and collect its Markdown output.
 
                     Args:
                         group_name: Group identifier within the module.
@@ -257,58 +268,54 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
                         sagent: Agent instance for the group.
 
                     Returns:
-                        Tuple of group name, parsed/fallback facts document, and
-                        optional failure reason.
+                        Tuple of group name, Markdown output, and optional
+                        failure reason.
                     """
                     try:
-                        if module_timeout > 0:
-                            res = await asyncio.wait_for(
-                                Runner.run(
+                        async with _api_sem:
+                            if module_timeout > 0:
+                                res = await asyncio.wait_for(
+                                    Runner.run(
+                                        sagent,
+                                        "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
+                                        max_turns=3,
+                                    ),
+                                    timeout=module_timeout,
+                                )
+                            else:
+                                res = await Runner.run(
                                     sagent,
-                                    "Extract structured claims with evidence.",
+                                    "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
                                     max_turns=3,
-                                ),
-                                timeout=module_timeout,
-                            )
-                        else:
-                            res = await Runner.run(
-                                sagent,
-                                "Extract structured claims with evidence.",
-                                max_turns=3,
-                            )
-                        parsed = _parse_group_facts_output(
-                            res.final_output,
-                            module=mod_name,
-                            group_name=group_name,
-                        )
+                                )
+                        md_output = str(res.final_output).strip()
+                        if not md_output:
+                            return group_name, None, "empty output"
                         print(f"    ✓ {mod_name}/{group_name}", file=sys.stderr)
-                        return group_name, parsed, None
+                        return group_name, md_output, None
                     except Exception as exc:
                         failure_reason = str(exc)
                         print(f"    ⚠ {mod_name}/{group_name} failed: {failure_reason}", file=sys.stderr)
-                        fallback_doc = _build_group_facts_fallback(
-                            module=mod_name,
-                            group_name=group_name,
-                            group=group,
-                        )
-                        return group_name, fallback_doc, failure_reason
+                        # Build a minimal fallback from file listing
+                        fallback = _build_agent_md_fallback(mod_name, group_name, group)
+                        return group_name, fallback, failure_reason
 
                 sub_results = await asyncio.gather(
                     *[_run_sub(gn, grp, sa) for gn, grp, sa in group_entries]
                 )
 
-                successes: list[GroupFactsDocument] = []
-                for group_name, facts_doc, failure_reason in sub_results:
-                    if facts_doc is None:
+                successes: list[tuple[str, str]] = []
+                for group_name, md_output, failure_reason in sub_results:
+                    if md_output is None:
                         _mark_module_failure(
                             refresh_status,
                             module=mod_name,
                             group_name=group_name,
-                            reason=failure_reason or "group returned no facts",
+                            reason=failure_reason or "group returned no output",
                             state="failed",
                         )
                         continue
-                    successes.append(facts_doc)
+                    successes.append((group_name, md_output))
                     if failure_reason:
                         _mark_module_failure(
                             refresh_status,
@@ -320,11 +327,15 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
 
                 if not successes:
                     refresh_status.modules[mod_name] = "failed"
-                    print(f"  ⚠ RefreshModule_{mod_name} produced no facts", file=sys.stderr)
+                    print(f"  ⚠ RefreshModule_{mod_name} produced no output", file=sys.stderr)
                     return mod_name, "failed"
 
-                merged = _merge_group_facts(module=mod_name, group_docs=successes)
-                _write_module_artifacts(modules_dir=modules_dir, document=merged)
+                # Write agent.md artifacts
+                _write_agent_md_artifacts(
+                    agents_dir=agents_dir,
+                    module=mod_name,
+                    group_outputs=successes,
+                )
                 module_state = "success"
                 if any(reason is not None for _, _, reason in sub_results):
                     module_state = "partial"
@@ -334,7 +345,7 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
 
         print(
             f"  ▶ Running {len(module_entries)} modules "
-            f"(concurrency={mod_concurrency})...",
+            f"(module_concurrency={mod_concurrency}, api_concurrency={api_concurrency})...",
             file=sys.stderr,
         )
         module_results = await asyncio.gather(*[_run_module(e) for e in module_entries])
@@ -388,32 +399,58 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         refresh_status.stages["module_docs"] = "skipped"
         refresh_status.stages["git_insights"] = "skipped"
 
-    # -- Step 8: Generate module registry artifacts --
+    # -- Step 8: Generate map.md via Map Agent --
     if not refresh_scan_only:
-        print("[8/8] Generating module registry...", file=sys.stderr)
+        print("[8/8] Generating map.md via Map Agent...", file=sys.stderr)
         try:
-            registry_entries = _build_module_registry_entries(workspace, refresh_status)
-            (ag_dir / "module_registry.json").write_text(
-                json.dumps([entry.model_dump(mode="json") for entry in registry_entries], ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            (ag_dir / "module_registry.md").write_text(
-                _render_module_registry_markdown(registry_entries),
-                encoding="utf-8",
-            )
-            print("  ✓ module registry generated", file=sys.stderr)
+            map_content = await _generate_map_md(workspace, model or "")
+            (ag_dir / "map.md").write_text(map_content, encoding="utf-8")
+            print("  ✓ map.md generated", file=sys.stderr)
             refresh_status.stages["module_registry"] = "success"
+
+            # Also generate legacy module_registry for backward compat
+            try:
+                registry_entries = _build_module_registry_entries(workspace, refresh_status)
+                (ag_dir / "module_registry.json").write_text(
+                    json.dumps([entry.model_dump(mode="json") for entry in registry_entries], ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                (ag_dir / "module_registry.md").write_text(
+                    _render_module_registry_markdown(registry_entries),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass  # Legacy registry is best-effort
         except Exception as exc:
-            print(f"  ⚠ Module registry generation failed: {exc}", file=sys.stderr)
+            print(f"  ⚠ Map Agent failed: {exc}. Using fallback.", file=sys.stderr)
+            # Fallback: build map.md from file listing
+            fallback_map = _build_fallback_map_md(workspace)
+            (ag_dir / "map.md").write_text(fallback_map, encoding="utf-8")
+            # Also try legacy registry
+            try:
+                registry_entries = _build_module_registry_entries(workspace, refresh_status)
+                (ag_dir / "module_registry.json").write_text(
+                    json.dumps([entry.model_dump(mode="json") for entry in registry_entries], ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                (ag_dir / "module_registry.md").write_text(
+                    _render_module_registry_markdown(registry_entries),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
             _mark_stage_failure(
                 refresh_status,
                 stage="module_registry",
                 reason=str(exc),
-                partial=False,
+                partial=True,
             )
     else:
-        print("[8/8] Scan-only mode: module registry skipped.", file=sys.stderr)
+        print("[8/8] Scan-only mode: map generation skipped.", file=sys.stderr)
         refresh_status.stages["module_registry"] = "skipped"
+
+    # -- Step 9: GitNexus code graph indexing (optional) --
+    _run_gitnexus_analyze(workspace, refresh_status)
 
     current_sha = _get_head_sha(workspace)
     if current_sha:
@@ -465,6 +502,12 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         ag_dir / "module_registry.md",
         refresh_status.stages.get("module_registry", "success"),
     )
+    agents_out_dir = ag_dir / "agents"
+    if agents_out_dir.exists():
+        agent_md_count = len(list(agents_out_dir.glob("*.md")))
+        agent_dir_count = len([d for d in agents_out_dir.iterdir() if d.is_dir()])
+        status_label = "Preserved" if refresh_status.stages.get("module_docs") == "skipped" else "Updated"
+        print(f"{status_label} {agents_out_dir} ({agent_md_count} agent docs, {agent_dir_count} multi-group modules)")
     modules_dir = ag_dir / "modules"
     if modules_dir.exists():
         mod_count = len(list(modules_dir.glob("*.md")))
@@ -728,12 +771,18 @@ def _extract_symbol_claims(source_file) -> list[ModuleClaim]:
 def _extract_python_symbol_claims(source_file) -> list[ModuleClaim]:
     """Extract fallback claims from a Python source file.
 
+    .. deprecated::
+        Legacy function kept for backward compatibility with existing
+        ``modules/*.facts.json`` artifacts. New refresh pipeline uses
+        LLM-based analysis (``agents/*.md``) instead.
+
     Args:
         source_file: Source file object from ``module_grouping``.
 
     Returns:
         Claims derived from top-level definitions and imports.
     """
+    import ast  # noqa: F811 — lazy import for legacy path only
     claims: list[ModuleClaim] = []
     rel_path = source_file.rel_path
     lines = source_file.content.splitlines()
@@ -1046,6 +1095,70 @@ def _dedupe_evidence(evidence: list[EvidenceSpan]) -> list[EvidenceSpan]:
         seen.add(key)
         result.append(item)
     return result
+
+
+def _write_agent_md_artifacts(
+    agents_dir: Path,
+    module: str,
+    group_outputs: list[tuple[str, str]],
+) -> None:
+    """Write agent.md Markdown artifacts for a module.
+
+    For single-group modules: writes ``agents/{module}.md``.
+    For multi-group modules: writes ``agents/{module}/group_name.md``
+    (one per group, no merging — each is a standalone knowledge document).
+
+    Args:
+        agents_dir: The ``.antigravity/agents`` directory.
+        module: Module identifier.
+        group_outputs: List of ``(group_name, markdown_content)`` tuples.
+    """
+    if len(group_outputs) == 1:
+        # Single group → single file
+        _group_name, md_content = group_outputs[0]
+        out_path = agents_dir / f"{module}.md"
+        out_path.write_text(md_content, encoding="utf-8")
+    else:
+        # Multiple groups → directory with one file per group
+        mod_dir = agents_dir / module
+        mod_dir.mkdir(parents=True, exist_ok=True)
+        for group_name, md_content in group_outputs:
+            safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", group_name)
+            out_path = mod_dir / f"{safe_name}.md"
+            out_path.write_text(md_content, encoding="utf-8")
+
+
+def _build_agent_md_fallback(
+    module: str,
+    group_name: str,
+    group,
+) -> str:
+    """Build a minimal fallback agent.md when the LLM fails.
+
+    Lists source files with basic metadata (path, language, line count).
+
+    Args:
+        module: Module identifier.
+        group_name: Group identifier.
+        group: File grouping object from ``module_grouping``.
+
+    Returns:
+        Markdown string with file listing.
+    """
+    lines = [
+        f"# Module: {module} — Group: {group_name}",
+        "",
+        "(Auto-generated fallback — LLM analysis was unavailable)",
+        "",
+        "## Source Files",
+        "",
+    ]
+    for source_file in group.files:
+        line_count = source_file.content.count("\n") + 1
+        lines.append(
+            f"- `{source_file.rel_path}` ({source_file.language}, {line_count} lines)"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _write_module_artifacts(
@@ -1378,6 +1491,72 @@ def _export_normalized_graph_store(ag_dir: Path, graph: dict[str, Any]) -> None:
     )
 
 
+def _run_gitnexus_analyze(workspace: Path, refresh_status: RefreshStatus) -> None:
+    """Run ``gitnexus analyze`` to build/update the code knowledge graph.
+
+    Silently skips if the ``gitnexus`` CLI is not installed. This step is
+    optional — the ask pipeline degrades gracefully without it.
+
+    Args:
+        workspace: Project root directory.
+        refresh_status: Mutable refresh status to record outcome.
+    """
+    try:
+        result = subprocess.run(
+            ["gitnexus", "--version"],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            print("[9/9] GitNexus not installed; skipping code graph indexing.", file=sys.stderr)
+            refresh_status.stages["gitnexus"] = "skipped"
+            return
+    except FileNotFoundError:
+        print("[9/9] GitNexus not installed; skipping code graph indexing.", file=sys.stderr)
+        refresh_status.stages["gitnexus"] = "skipped"
+        return
+
+    print("[9/9] Running GitNexus code graph indexing...", file=sys.stderr)
+    try:
+        gitnexus_timeout = int(os.environ.get("AG_GITNEXUS_TIMEOUT_SECONDS", "300"))
+        result = subprocess.run(
+            ["gitnexus", "analyze", str(workspace.resolve())],
+            capture_output=True,
+            text=True,
+            cwd=str(workspace),
+            check=False,
+            timeout=gitnexus_timeout,
+        )
+        if result.returncode == 0:
+            print("  ✓ GitNexus code graph indexed", file=sys.stderr)
+            refresh_status.stages["gitnexus"] = "success"
+        else:
+            stderr_snippet = (result.stderr or "")[:200].strip()
+            print(f"  ⚠ GitNexus analyze failed: {stderr_snippet}", file=sys.stderr)
+            _mark_stage_failure(
+                refresh_status,
+                stage="gitnexus",
+                reason=stderr_snippet or "non-zero exit code",
+                partial=True,
+            )
+    except subprocess.TimeoutExpired:
+        print("  ⚠ GitNexus analyze timed out", file=sys.stderr)
+        _mark_stage_failure(
+            refresh_status,
+            stage="gitnexus",
+            reason="timeout",
+            partial=True,
+        )
+    except Exception as exc:
+        print(f"  ⚠ GitNexus analyze error: {exc}", file=sys.stderr)
+        _mark_stage_failure(
+            refresh_status,
+            stage="gitnexus",
+            reason=str(exc),
+            partial=True,
+        )
+
+
 def _get_head_sha(workspace: Path) -> str | None:
     """Get the current HEAD commit SHA."""
     try:
@@ -1486,6 +1665,131 @@ def _build_scan_payload(report) -> dict[str, object]:
         "oversized_files": int(getattr(report, "oversized_files", 0)),
         "binary_files": int(getattr(report, "binary_files", 0)),
     }
+
+
+async def _generate_map_md(workspace: Path, model: str) -> str:
+    """Generate map.md by feeding agent.md files to a Map Agent.
+
+    Reads all ``agents/*.md`` files and passes them to a Map Agent LLM
+    that produces a concise routing index.  If the total content exceeds
+    a reasonable context size, groups are fed to multiple Map Agents and
+    their outputs are concatenated.
+
+    Args:
+        workspace: Project root directory.
+        model: LLM model identifier.
+
+    Returns:
+        Markdown content for map.md.
+    """
+    from antigravity_engine.hub.agents import build_map_agent
+
+    try:
+        from agents import Runner
+    except ImportError:
+        raise ImportError(
+            "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
+        ) from None
+
+    agents_dir = workspace / ".antigravity" / "agents"
+    if not agents_dir.exists():
+        return _build_fallback_map_md(workspace)
+
+    # Collect all agent.md content
+    agent_docs: list[tuple[str, str]] = []
+    for item in sorted(agents_dir.iterdir()):
+        if item.is_file() and item.suffix == ".md":
+            module_name = item.stem
+            try:
+                content = item.read_text(encoding="utf-8")
+                agent_docs.append((module_name, content))
+            except OSError:
+                continue
+        elif item.is_dir():
+            # Multi-group module
+            module_name = item.name
+            for md_file in sorted(item.glob("*.md")):
+                try:
+                    content = md_file.read_text(encoding="utf-8")
+                    agent_docs.append((f"{module_name}/{md_file.stem}", content))
+                except OSError:
+                    continue
+
+    if not agent_docs:
+        return _build_fallback_map_md(workspace)
+
+    # Build prompt with all agent docs
+    # Estimate tokens: ~4 chars per token
+    max_context_tokens = 100_000  # conservative limit
+    doc_parts: list[str] = []
+    total_chars = 0
+    for name, content in agent_docs:
+        header = f"\n---\n## Agent: {name}\n"
+        # Truncate very long docs to keep context manageable
+        truncated = content[:20_000] if len(content) > 20_000 else content
+        part = header + truncated
+        if total_chars + len(part) > max_context_tokens * 4:
+            break
+        doc_parts.append(part)
+        total_chars += len(part)
+
+    prompt = "Create a map.md from these module knowledge documents:\n" + "\n".join(doc_parts)
+
+    map_agent = build_map_agent(model)
+    map_timeout = float(os.environ.get("AG_MAP_AGENT_TIMEOUT_SECONDS", "90"))
+    if map_timeout > 0:
+        result = await asyncio.wait_for(
+            Runner.run(map_agent, prompt),
+            timeout=map_timeout,
+        )
+    else:
+        result = await Runner.run(map_agent, prompt)
+
+    return str(result.final_output).strip()
+
+
+def _build_fallback_map_md(workspace: Path) -> str:
+    """Build a basic map.md without LLM, from agent.md file listing.
+
+    Args:
+        workspace: Project root directory.
+
+    Returns:
+        Markdown content for a fallback map.
+    """
+    from antigravity_engine.hub.scanner import detect_modules, resolve_module_path
+
+    modules = detect_modules(workspace)
+    if not modules:
+        return "# Module Map\n\n(No modules detected)\n"
+
+    lines = ["# Module Map\n"]
+    agents_dir = workspace / ".antigravity" / "agents"
+
+    for mod in modules:
+        mod_path = resolve_module_path(workspace, mod)
+        try:
+            rel_dir = str(mod_path.relative_to(workspace))
+        except ValueError:
+            rel_dir = mod
+
+        lines.append(f"## {mod}")
+        lines.append(f"**Path:** `{rel_dir}/`")
+
+        # Check if agent.md exists for a brief summary
+        agent_md = agents_dir / f"{mod}.md" if agents_dir.exists() else None
+        if agent_md and agent_md.is_file():
+            try:
+                first_lines = agent_md.read_text(encoding="utf-8").splitlines()[:3]
+                desc = " ".join(line.strip("#").strip() for line in first_lines if line.strip())
+                if desc:
+                    lines.append(f"**Description:** {desc[:200]}")
+            except OSError:
+                pass
+
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 async def _generate_module_registry(workspace: Path, model: str) -> str:

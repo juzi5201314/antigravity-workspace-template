@@ -13,7 +13,6 @@ All file contents are pre-loaded into agent context — no tool calls needed.
 """
 from __future__ import annotations
 
-import ast as _ast
 import json
 import os
 import re
@@ -233,9 +232,11 @@ def _classify_file(
     content: str,
     semantics: FileSemantics | None = None,
 ) -> str:
-    """Classify a file by AST analysis into a category.
+    """Classify a file into a category (language-agnostic).
 
     Categories: interface, implementation, glue, test, config.
+
+    Uses semantic adapter output and filename heuristics — no AST parsing.
     """
     name = fpath.stem.lower()
     fname = fpath.name.lower()
@@ -246,69 +247,23 @@ def _classify_file(
     if (name.startswith("test_") or name.endswith("_test")
             or "tests/" in str(fpath) or "test/" in str(fpath)
             or fname.endswith(".test.ts") or fname.endswith(".test.tsx")
-            or fname.endswith(".spec.ts") or fname.endswith(".spec.tsx")):
+            or fname.endswith(".spec.ts") or fname.endswith(".spec.tsx")
+            or fname.endswith("_test.go")):
         return "test"
 
-    # Glue files
-    if name == "__init__" or name == "index":
+    # Glue files (language-specific index/init files)
+    if name in ("__init__", "index", "mod"):
         return "glue"
 
     # Config files
     if name in ("config", "settings", "constants", "types", "enums", "env"):
         return "config"
 
-    if semantics and semantics.language == "Go":
+    # Interface detection via semantic adapter (works for any language)
+    if semantics and semantics.symbols:
         symbol_kinds = {symbol.kind for symbol in semantics.symbols}
-        if symbol_kinds and symbol_kinds <= {"interface"}:
+        if symbol_kinds and symbol_kinds <= {"interface", "protocol", "abstract_class"}:
             return "interface"
-
-    # For Python: check if mostly abstract/protocol definitions
-    if fpath.suffix == ".py":
-        try:
-            tree = _ast.parse(content, filename=str(fpath))
-            return _classify_python_ast(tree)
-        except SyntaxError:
-            pass
-
-    return "implementation"
-
-
-def _classify_python_ast(tree: _ast.Module) -> str:
-    """Classify a Python module by its AST structure."""
-    classes = 0
-    abstract_classes = 0
-    functions = 0
-
-    for node in _ast.iter_child_nodes(tree):
-        if isinstance(node, _ast.ClassDef):
-            classes += 1
-            # Check for ABC, Protocol, or abstract methods
-            base_names = []
-            for base in node.bases:
-                if isinstance(base, _ast.Name):
-                    base_names.append(base.id)
-                elif isinstance(base, _ast.Attribute):
-                    base_names.append(base.attr)
-            if any(b in ("ABC", "Protocol", "BaseModel") for b in base_names):
-                abstract_classes += 1
-            else:
-                # Check for @abstractmethod
-                for item in _ast.iter_child_nodes(node):
-                    if isinstance(item, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-                        for dec in item.decorator_list:
-                            dec_name = ""
-                            if isinstance(dec, _ast.Name):
-                                dec_name = dec.id
-                            elif isinstance(dec, _ast.Attribute):
-                                dec_name = dec.attr
-                            if dec_name == "abstractmethod":
-                                abstract_classes += 1
-                                break
-        elif isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
-            functions += 1
-
-    if classes > 0 and abstract_classes >= classes * 0.5:
-        return "interface"
 
     return "implementation"
 
@@ -606,27 +561,44 @@ def _name_group(files: list[SourceFile]) -> str:
     return "misc"
 
 
+#: Hard limit on raw characters per group to prevent exceeding LLM
+#: context window / instructions size limits (typically ~1M chars).
+_MAX_RAW_CHARS_PER_GROUP = int(os.environ.get("AG_MAX_GROUP_CHARS", "800000"))
+
+
 def _chunk_files(
     base_name: str,
     files: list[SourceFile],
     token_budget: int,
 ) -> list[FileGroup]:
-    """Split a list of files into budget-sized chunks."""
+    """Split a list of files into budget-sized chunks.
+
+    Respects both the effective-token budget (for analysis quality) and
+    a hard raw-character limit (to avoid exceeding LLM context limits).
+    """
     if not files:
         return []
 
     groups: list[FileGroup] = []
     current = FileGroup(name=base_name, files=[])
+    current_raw_chars = 0
     idx = 0
 
     for f in files:
-        if (current.total_effective_tokens + f.effective_tokens > token_budget
-                and current.files
-                and len(current.files) > 0):
+        raw_chars = len(f.content)
+        would_exceed_budget = (
+            current.total_effective_tokens + f.effective_tokens > token_budget
+        )
+        would_exceed_chars = (
+            current_raw_chars + raw_chars > _MAX_RAW_CHARS_PER_GROUP
+        )
+        if current.files and (would_exceed_budget or would_exceed_chars):
             groups.append(current)
             idx += 1
             current = FileGroup(name=f"{base_name}_{idx}", files=[])
+            current_raw_chars = 0
         current.add(f)
+        current_raw_chars += raw_chars
 
     if current.files:
         groups.append(current)

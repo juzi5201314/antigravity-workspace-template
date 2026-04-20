@@ -5,7 +5,6 @@ workflows into dedicated modules.
 """
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import logging
@@ -175,13 +174,28 @@ async def _ask_with_legacy_swarm(workspace: Path, question: str) -> str:
 def _structured_artifacts_available(workspace: Path) -> bool:
     """Return whether structured refresh artifacts exist.
 
+    Checks for the new agent.md-based format first (``map.md`` +
+    ``agents/``), then falls back to the legacy JSON facts format.
+
     Args:
         workspace: Project root directory.
 
     Returns:
-        True when registry, status, and at least one facts artifact exist.
+        True when routing and knowledge artifacts exist.
     """
     ag_dir = workspace / ".antigravity"
+
+    # New format: map.md + agents/ directory
+    agents_dir = ag_dir / "agents"
+    if (ag_dir / "map.md").is_file() and agents_dir.is_dir():
+        has_agents = (
+            any(agents_dir.glob("*.md"))
+            or any(d.is_dir() for d in agents_dir.iterdir() if not d.name.startswith("."))
+        )
+        if has_agents:
+            return True
+
+    # Legacy format: module_registry.json + modules/*.facts.json
     modules_dir = ag_dir / "modules"
     return (
         (ag_dir / "module_registry.json").is_file()
@@ -192,16 +206,446 @@ def _structured_artifacts_available(workspace: Path) -> bool:
 
 
 async def _ask_with_structured_facts(workspace: Path, question: str) -> str | None:
-    """Answer a question from structured module facts when possible.
+    """Answer a question using agent.md knowledge documents.
+
+    Uses map.md to route the question to relevant modules, then reads
+    their agent.md files and lets LLM(s) answer from that context.
+
+    For single agent.md → one LLM call.
+    For multiple agent.md → parallel LLM calls → synthesizer LLM.
+
+    Falls back to legacy JSON facts if the new format is not available.
 
     Args:
         workspace: Project root directory.
         question: Natural language question.
 
     Returns:
-        Structured answer string, or ``None`` if the facts path cannot answer
-        confidently enough and should fall back to the legacy swarm.
+        Answer string, or ``None`` if the agent.md path cannot answer.
     """
+    ag_dir = workspace / ".antigravity"
+
+    # Check for new agent.md format
+    if (ag_dir / "map.md").is_file() and (ag_dir / "agents").is_dir():
+        answer = await _ask_with_agent_md(workspace, question)
+        if answer is not None:
+            return answer
+
+    # Fall back to legacy JSON facts path
+    return await _ask_with_legacy_facts(workspace, question)
+
+
+def _parse_router_output(output: str) -> tuple[list[str], bool]:
+    """Parse the Router agent's structured output.
+
+    Expected format::
+
+        MODULES: module1, module2
+        GRAPH: yes
+
+    Falls back to treating each line as a module name if the format
+    is not recognized (backward compatible with old Router output).
+
+    Args:
+        output: Raw Router agent output text.
+
+    Returns:
+        Tuple of (raw module name list, needs_graph boolean).
+    """
+    modules: list[str] = []
+    needs_graph = False
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        upper = stripped.upper()
+
+        if upper.startswith("MODULES:"):
+            raw = stripped[len("MODULES:"):].strip()
+            modules = [m.strip().strip("`*") for m in raw.split(",") if m.strip()]
+        elif upper.startswith("GRAPH:"):
+            val = stripped[len("GRAPH:"):].strip().lower()
+            needs_graph = val in ("yes", "true", "1")
+
+    # Fallback: if no MODULES: line found, treat each line as a module name
+    if not modules:
+        modules = [
+            line.strip().strip("- *`#")
+            for line in output.strip().splitlines()
+            if line.strip() and not line.strip().upper().startswith("GRAPH:")
+        ]
+
+    return modules, needs_graph
+
+
+def _query_graph_for_question(workspace: Path, question: str) -> str:
+    """Query GitNexus code knowledge graph for structural information.
+
+    Calls ``gitnexus query`` with the user's question to get call chains,
+    dependency relationships, and symbol context. Silently returns empty
+    string if GitNexus is not installed or not indexed.
+
+    Args:
+        workspace: Project root directory.
+        question: Natural language question.
+
+    Returns:
+        Graph query results as formatted string, or empty string.
+    """
+    from antigravity_engine.hub.ask_tools import (
+        _is_gitnexus_available,
+        _run_gitnexus,
+    )
+
+    if not _is_gitnexus_available():
+        return ""
+
+    # Use gitnexus query for hybrid search (BM25 + semantic)
+    result = _run_gitnexus(workspace.resolve(), ["query", question])
+    if not result or "error" in result.lower()[:50]:
+        return ""
+
+    return result
+
+
+def _match_to_known_modules(
+    raw_names: list[str],
+    known: set[str],
+) -> list[str]:
+    """Match LLM-output module names to known module identifiers.
+
+    Tries exact match first, then case-insensitive, then substring
+    containment. Deduplicates and preserves order.
+
+    Args:
+        raw_names: Raw module name strings from LLM output.
+        known: Set of known module identifiers from agents/ directory.
+
+    Returns:
+        Matched module identifiers (up to 3).
+    """
+    matched: list[str] = []
+    seen: set[str] = set()
+    known_lower = {k.lower(): k for k in known}
+
+    for raw in raw_names:
+        if len(matched) >= 3:
+            break
+        # Clean: strip markdown artifacts, parenthetical notes, etc.
+        clean = re.sub(r"\s*\(.*?\)\s*", "", raw).strip().strip("- *`#:.")
+        if not clean:
+            continue
+
+        # 1. Exact match
+        if clean in known and clean not in seen:
+            matched.append(clean)
+            seen.add(clean)
+            continue
+
+        # 2. Case-insensitive match
+        lower = clean.lower()
+        if lower in known_lower and known_lower[lower] not in seen:
+            matched.append(known_lower[lower])
+            seen.add(known_lower[lower])
+            continue
+
+        # 3. Substring: find known modules whose name is contained
+        #    in the raw output or vice versa
+        for k in sorted(known, key=len, reverse=True):
+            if k in seen:
+                continue
+            if k.lower() in lower or lower in k.lower():
+                matched.append(k)
+                seen.add(k)
+                break
+
+    return matched
+
+
+async def _ask_with_agent_md(workspace: Path, question: str) -> str | None:
+    """Answer a question by routing through map.md → agent.md files.
+
+    Args:
+        workspace: Project root directory.
+        question: Natural language question.
+
+    Returns:
+        Answer string, or ``None`` if insufficient.
+    """
+    from antigravity_engine.config import get_settings
+    from antigravity_engine.hub.agents import create_model
+
+    settings = get_settings()
+    model = create_model(settings)
+
+    try:
+        from agents import Agent, Runner
+    except ImportError:
+        return None
+
+    ag_dir = workspace / ".antigravity"
+
+    # Step 1: Read map.md and select modules
+    try:
+        map_content = (ag_dir / "map.md").read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    print("[2/4] Routing question via map.md...", file=sys.stderr)
+
+    router_prompt = f"""\
+You are a routing agent for a codebase Q&A system.
+
+Given the question and module map below, do TWO things:
+
+1. Select 1-3 modules most relevant to this question.
+2. Decide whether this question needs **structural graph analysis** — i.e.,
+   call chains, dependency graphs, import relationships, impact analysis,
+   cross-module data flow, or symbol lookup. If the question is about
+   WHAT code does or WHY it's designed that way, graph is NOT needed.
+   If it's about WHO calls WHOM, dependencies, or tracing execution flow,
+   graph IS needed.
+
+Output format (strict):
+MODULES: module1, module2
+GRAPH: yes
+
+Or:
+MODULES: module1
+GRAPH: no
+
+Question: {question}
+
+Module Map:
+{map_content}
+"""
+    router_agent = Agent(
+        name="QuickRouter",
+        instructions="Output ONLY in the exact format: MODULES: ... and GRAPH: yes/no. No other text.",
+        model=model,
+    )
+    ask_timeout = float(os.environ.get("AG_ASK_TIMEOUT_SECONDS", "45"))
+    try:
+        if ask_timeout > 0:
+            result = await asyncio.wait_for(
+                Runner.run(router_agent, router_prompt, max_turns=1),
+                timeout=ask_timeout,
+            )
+        else:
+            result = await Runner.run(router_agent, router_prompt, max_turns=1)
+    except Exception:
+        return None
+
+    # Parse Router output: MODULES + GRAPH decision
+    router_output = str(result.final_output).strip()
+    raw_modules, needs_graph = _parse_router_output(router_output)
+
+    # Collect known module names from agents/ directory
+    agents_dir = ag_dir / "agents"
+    known_modules: set[str] = set()
+    if agents_dir.is_dir():
+        for item in agents_dir.iterdir():
+            if item.is_file() and item.suffix == ".md":
+                known_modules.add(item.stem)
+            elif item.is_dir() and not item.name.startswith("."):
+                known_modules.add(item.name)
+
+    selected_modules = _match_to_known_modules(raw_modules, known_modules)
+    if not selected_modules:
+        return None
+
+    print(
+        f"[2/4] Selected modules: {', '.join(selected_modules)} | graph: {'yes' if needs_graph else 'no'}",
+        file=sys.stderr,
+    )
+
+    # Step 2: Read agent.md for selected modules
+    module_knowledge: list[tuple[str, str]] = []
+    for mod_name in selected_modules:
+        # Try single file
+        single_md = agents_dir / f"{mod_name}.md"
+        if single_md.is_file():
+            try:
+                content = single_md.read_text(encoding="utf-8")
+                module_knowledge.append((mod_name, content))
+            except OSError:
+                continue
+        # Try multi-group directory
+        elif (agents_dir / mod_name).is_dir():
+            for md_file in sorted((agents_dir / mod_name).glob("*.md")):
+                try:
+                    content = md_file.read_text(encoding="utf-8")
+                    module_knowledge.append((f"{mod_name}/{md_file.stem}", content))
+                except OSError:
+                    continue
+
+    if not module_knowledge:
+        return None
+
+    # Step 2.5: Query GitNexus graph if Router decided it's needed
+    graph_context = ""
+    if needs_graph:
+        graph_context = _query_graph_for_question(workspace, question)
+        if graph_context:
+            print(f"[2.5/4] Graph enrichment: {len(graph_context)} chars", file=sys.stderr)
+
+    # Step 3: Answer from agent.md content (+ optional graph context)
+    print(f"[3/4] Reading {len(module_knowledge)} agent docs...", file=sys.stderr)
+    ask_api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
+    _ask_api_sem = asyncio.Semaphore(ask_api_concurrency)
+
+    # Build graph section for prompts (empty string if no graph data)
+    graph_section = ""
+    if graph_context:
+        graph_section = f"""
+
+Structural relationships (from code knowledge graph — precise call/import/dependency data):
+{graph_context[:30_000]}
+
+IMPORTANT: The "module knowledge" describes WHAT the code does (semantic understanding).
+The "structural relationships" show WHO calls/imports WHOM (precise graph data).
+Combine both sources for a complete answer. Prefer graph data for structural questions."""
+
+    if len(module_knowledge) == 1:
+        # Single agent.md → one LLM call
+        mod_name, knowledge = module_knowledge[0]
+        answer_prompt = f"""\
+Answer this question using the module knowledge below.
+Be specific — cite file paths, function names, line numbers.
+If the knowledge doesn't cover the question, say so.
+
+Question: {question}
+
+Module: {mod_name}
+Knowledge:
+{knowledge[:80_000]}
+{graph_section}
+"""
+        answer_agent = Agent(
+            name="AnswerAgent",
+            instructions="Answer concisely with specific code references. No preamble.",
+            model=model,
+        )
+        try:
+            if ask_timeout > 0:
+                result = await asyncio.wait_for(
+                    Runner.run(answer_agent, answer_prompt, max_turns=1),
+                    timeout=ask_timeout,
+                )
+            else:
+                result = await Runner.run(answer_agent, answer_prompt, max_turns=1)
+            print("[4/4] Answer synthesized.", file=sys.stderr)
+            return str(result.final_output).strip()
+        except Exception:
+            return None
+    else:
+        # Multiple agent.md → parallel LLM calls (with concurrency limit) → synthesizer
+        async def _answer_from_doc(
+            mod_name: str, knowledge: str
+        ) -> tuple[str, str | None]:
+            prompt = f"""\
+Answer this question using ONLY the module knowledge below.
+Be specific — cite file paths, function names.
+If irrelevant to the question, respond with "(not relevant)".
+
+Question: {question}
+
+Module: {mod_name}
+Knowledge:
+{knowledge[:60_000]}
+{graph_section}
+"""
+            agent = Agent(
+                name=f"Reader_{mod_name}",
+                instructions="Answer concisely. Say '(not relevant)' if the knowledge doesn't help.",
+                model=model,
+            )
+            try:
+                async with _ask_api_sem:
+                    if ask_timeout > 0:
+                        res = await asyncio.wait_for(
+                            Runner.run(agent, prompt, max_turns=1),
+                            timeout=ask_timeout,
+                        )
+                    else:
+                        res = await Runner.run(agent, prompt, max_turns=1)
+                return mod_name, str(res.final_output).strip()
+            except Exception:
+                return mod_name, None
+
+        partial_answers = await asyncio.gather(
+            *[_answer_from_doc(name, knowledge) for name, knowledge in module_knowledge]
+        )
+
+        # Filter out failures and irrelevant answers
+        valid_answers = [
+            (name, ans) for name, ans in partial_answers
+            if ans and "(not relevant)" not in ans.lower()
+        ]
+
+        if not valid_answers:
+            return None
+
+        if len(valid_answers) == 1:
+            print("[4/4] Answer synthesized.", file=sys.stderr)
+            return valid_answers[0][1]
+
+        # Synthesize multiple answers
+        synth_parts = "\n\n---\n\n".join(
+            f"**From {name}:**\n{ans}" for name, ans in valid_answers
+        )
+        synth_prompt = f"""\
+Synthesize these partial answers into one coherent response.
+Keep all specific references (file paths, function names, line numbers).
+Be concise.
+
+Question: {question}
+
+Partial answers:
+{synth_parts}
+"""
+        synth_agent = Agent(
+            name="Synthesizer",
+            instructions="Combine the answers into one coherent response. Keep all specifics.",
+            model=model,
+        )
+        try:
+            if ask_timeout > 0:
+                result = await asyncio.wait_for(
+                    Runner.run(synth_agent, synth_prompt, max_turns=1),
+                    timeout=ask_timeout,
+                )
+            else:
+                result = await Runner.run(synth_agent, synth_prompt, max_turns=1)
+            print("[4/4] Answer synthesized from multiple modules.", file=sys.stderr)
+            return str(result.final_output).strip()
+        except Exception:
+            # Return the first valid answer as fallback
+            return valid_answers[0][1]
+
+
+async def _ask_with_legacy_facts(workspace: Path, question: str) -> str | None:
+    """Answer a question from legacy JSON module facts when available.
+
+    This is the original structured facts path preserved for backward
+    compatibility with pre-existing ``modules/*.facts.json`` artifacts.
+
+    Args:
+        workspace: Project root directory.
+        question: Natural language question.
+
+    Returns:
+        Structured answer string, or ``None`` to fall back to swarm.
+    """
+    ag_dir = workspace / ".antigravity"
+    modules_dir = ag_dir / "modules"
+    if not (
+        (ag_dir / "module_registry.json").is_file()
+        and (ag_dir / "status.json").is_file()
+        and modules_dir.is_dir()
+        and any(modules_dir.glob("*.facts.json"))
+    ):
+        return None
+
     registry_entries = _load_registry_entries(workspace)
     refresh_status = _load_refresh_status(workspace)
     candidates = _select_candidate_modules(question, registry_entries)
@@ -856,13 +1300,19 @@ def _find_function_defs(workspace: Path, identifiers: list[str]) -> list[dict[st
 
     Results are prioritized: matches in files whose stem contains an
     identifier are ranked first (the actual module, not a wrapper).
+
+    .. deprecated::
+        Legacy function using AST parsing. The new ask pipeline uses
+        LLM-based analysis via ``agents/*.md`` instead.
     """
+    import ast as _ast  # lazy import for legacy path
+
     targets = {x.lower() for x in identifiers}
     matches: list[dict[str, object]] = []
     for fpath in _iter_python_files(workspace):
         try:
             source = fpath.read_text(encoding="utf-8", errors="replace")
-            tree = ast.parse(source)
+            tree = _ast.parse(source)
             lines = source.splitlines()
         except Exception:
             continue
@@ -872,8 +1322,8 @@ def _find_function_defs(workspace: Path, identifiers: list[str]) -> list[dict[st
         # Boost: file stem contains one of the target identifiers
         file_match = any(t in stem for t in targets)
 
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
                 name = node.name
                 if targets and name.lower() not in targets:
                     continue

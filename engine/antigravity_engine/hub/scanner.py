@@ -603,19 +603,17 @@ def _dir_has_code(directory: Path, venv_dirs: set[str]) -> bool:
 
 
 def detect_modules(root: Path) -> list[str]:
-    """Detect code modules with two-level resolution and large-module auto-split.
+    """Detect code modules using pure directory structure (language-agnostic).
 
     Top-level directories are scanned first.  When a top-level directory
-    is a Python package (contains a sub-package with ``__init__.py``)
-    *and* that sub-package contains three or more child packages, the
-    children are promoted to individual modules so the agent swarm can
-    specialise at a finer granularity.
+    has many code-bearing sub-directories (≥ ``_AUTO_SPLIT_THRESHOLD``),
+    it is automatically split into sub-modules.
 
-    **Language-agnostic auto-split:** When a top-level directory has many
-    code-bearing sub-directories (≥ ``_AUTO_SPLIT_THRESHOLD``), it is
-    automatically split into sub-modules regardless of language.  This
-    handles large TypeScript/JS projects (e.g. ``extensions/`` with 50+
-    platform integrations) that lack ``__init__.py``.
+    **Two-level resolution:** When a top-level directory contains exactly
+    one code-bearing child directory (e.g. ``engine/antigravity_engine/``),
+    the detection descends one level and checks for auto-split there.
+    This is fully language-agnostic — no ``__init__.py`` or any other
+    language-specific marker is required.
 
     Only directories that contain actual source code (not just docs or
     data) are treated as modules.
@@ -645,21 +643,20 @@ def detect_modules(root: Path) -> list[str]:
             if not _dir_has_code(item, venv_dirs):
                 continue
 
-            # Try two-level: look for a single inner Python package
-            # (directory with __init__.py) that itself has >=3 sub-packages.
-            inner_pkg = _find_inner_package(item, skip)
-            if inner_pkg is not None:
-                sub_modules = _detect_sub_modules(inner_pkg, item.name, venv_dirs, skip)
-                if len(sub_modules) >= 3:
-                    modules.extend(sub_modules)
-                    continue
-
-            # Language-agnostic auto-split: if a directory has many
-            # code-bearing children, promote each child to its own module.
+            # Try auto-split at top level first
             child_subs = _detect_sub_modules_any_lang(item, item.name, venv_dirs, skip)
             if len(child_subs) >= _AUTO_SPLIT_THRESHOLD:
                 modules.extend(child_subs)
                 continue
+
+            # Two-level: if top dir has exactly one code-bearing child,
+            # descend one level and try auto-split there.
+            inner = _find_single_code_child(item, venv_dirs, skip)
+            if inner is not None:
+                deep_subs = _detect_sub_modules_any_lang(inner, item.name, venv_dirs, skip)
+                if len(deep_subs) >= 3:
+                    modules.extend(deep_subs)
+                    continue
 
             # Fallback: treat entire top-level dir as one module
             modules.append(item.name)
@@ -677,11 +674,37 @@ def detect_modules(root: Path) -> list[str]:
 _AUTO_SPLIT_THRESHOLD = int(os.environ.get("AG_AUTO_SPLIT_THRESHOLD", "6"))
 
 
-def _find_inner_package(top_dir: Path, skip: set[str]) -> Path | None:
-    """Find the primary inner Python package inside *top_dir*.
+_NON_MODULE_DIR_NAMES: frozenset[str] = frozenset({
+    "tests", "test", "spec", "specs", "__tests__",
+    "docs", "doc", "examples", "example", "samples",
+    "scripts", "tools", "fixtures", "testdata",
+})
+"""Directory names that are not considered primary code modules when
+resolving two-level module structure (e.g. ``engine/tests/`` is not
+the main code package of ``engine/``)."""
 
-    Looks for a single child directory containing ``__init__.py``.
-    Returns ``None`` if there are zero or multiple candidates.
+
+def _find_single_code_child(
+    top_dir: Path,
+    venv_dirs: set[str],
+    skip: set[str],
+) -> Path | None:
+    """Find the single primary code-bearing child directory inside *top_dir*.
+
+    Language-agnostic: checks for any directory containing source code,
+    not for any language-specific marker.  Directories whose names match
+    common non-module patterns (tests, docs, examples, etc.) are excluded
+    from candidate consideration.
+
+    Returns ``None`` if there are zero or multiple primary candidates.
+
+    Args:
+        top_dir: Parent directory to inspect.
+        venv_dirs: Virtual-environment directory names to skip.
+        skip: Additional directory names to skip.
+
+    Returns:
+        The single primary code-bearing child, or None.
     """
     candidates: list[Path] = []
     try:
@@ -690,37 +713,13 @@ def _find_inner_package(top_dir: Path, skip: set[str]) -> Path | None:
                 continue
             if child.name.startswith(".") or child.name in skip:
                 continue
-            if (child / "__init__.py").is_file():
+            if child.name.lower() in _NON_MODULE_DIR_NAMES:
+                continue
+            if _dir_has_code(child, venv_dirs):
                 candidates.append(child)
     except OSError:
         return None
     return candidates[0] if len(candidates) == 1 else None
-
-
-def _detect_sub_modules(
-    inner_pkg: Path,
-    parent_name: str,
-    venv_dirs: set[str],
-    skip: set[str],
-) -> list[str]:
-    """Detect sub-modules inside *inner_pkg* that contain code.
-
-    Returns module ids as ``"{parent}_{child}"`` (slash-free).
-    """
-    sub_modules: list[str] = []
-    try:
-        for child in sorted(inner_pkg.iterdir()):
-            if not child.is_dir():
-                continue
-            if child.name.startswith(".") or child.name.startswith("_"):
-                continue
-            if child.name in skip:
-                continue
-            if _dir_has_code(child, venv_dirs):
-                sub_modules.append(f"{parent_name}_{child.name}")
-    except OSError:
-        pass
-    return sub_modules
 
 
 def _detect_sub_modules_any_lang(
@@ -758,7 +757,7 @@ def resolve_module_path(root: Path, module_id: str) -> Path:
 
     For simple modules the path is ``root / module_id``.  For two-level
     modules (``"parent_child"``) the path is resolved by scanning for
-    the inner package structure.
+    the single code-bearing inner directory (language-agnostic).
 
     Args:
         root: Project root directory.
@@ -776,14 +775,16 @@ def resolve_module_path(root: Path, module_id: str) -> Path:
     if direct.is_dir():
         return direct
 
-    # Two-level case: "parent_child" → root/parent/<inner_pkg>/child
-    # OR language-agnostic auto-split: "parent_child" → root/parent/child
+    # Two-level case: "parent_child" → root/parent/<inner>/child
+    # OR direct auto-split: "parent_child" → root/parent/child
     if "_" in module_id:
         parts = module_id.split("_", 1)
         parent_dir = root / parts[0]
         if parent_dir.is_dir():
-            # First try: inner Python package (engine_hub → engine/antigravity_engine/hub)
-            inner = _find_inner_package(parent_dir, _MODULE_SKIP_DIRS)
+            venv_dirs = _find_venv_dirs(root)
+            skip = _MODULE_SKIP_DIRS | venv_dirs
+            # First try: single code-bearing inner dir
+            inner = _find_single_code_child(parent_dir, venv_dirs, skip)
             if inner is not None:
                 child_dir = inner / parts[1]
                 if child_dir.is_dir():

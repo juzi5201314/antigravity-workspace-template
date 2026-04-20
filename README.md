@@ -113,11 +113,11 @@ ag init my-project && cd my-project
        └──► ag-mcp         MCP server → Claude Code calls directly
 ```
 
-**Dynamic Multi-Agent Cluster** — During `ag-refresh`, the engine uses **smart functional grouping**: files are grouped by import relationships (from the knowledge graph), directory co-location, and filename prefixes. Source code is pre-loaded directly into agent context (no tool calls needed), and build artifacts are automatically filtered out. Each sub-agent analyzes ~30K tokens of focused, functionally related code in a single LLM call and outputs **structured JSON claims with source evidence** (file paths + line ranges). A **RegistryAgent** then summarizes all modules into a semantic registry. During `ag-ask`, Router reads the registry to understand *what each module is responsible for* and routes questions to the right ModuleAgent — when structured facts are available, claims are verified against live source before answering. Powered by OpenAI Agent SDK + LiteLLM. **Multi-language**: Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
+**Dynamic Multi-Agent Cluster** — During `ag-refresh`, the engine uses **smart functional grouping**: files are grouped by import relationships, directory co-location, and filename prefixes. Source code is pre-loaded directly into agent context (no tool calls needed), and build artifacts are automatically filtered out. Each sub-agent analyzes ~30K tokens of focused, functionally related code in a single LLM call and outputs a **comprehensive Markdown knowledge document** (`agents/*.md`). For large modules, multiple sub-agents run in parallel — each produces its own agent.md (no merging, no information loss). A **Map Agent** reads all agent docs and generates `map.md` — a routing index. During `ag-ask`, Router reads `map.md` to select relevant modules, then feeds their agent docs to answer agents. For structural questions (call chains, dependencies, impact analysis), the Router automatically queries [GitNexus](https://github.com/abhigyanpatwari/GitNexus) code graph for precise relationships. **Fully language-agnostic** — module detection uses pure directory structure, code analysis is done entirely by LLMs. Works with any programming language.
 
 **GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
-**GitNexus Enhancement (optional)** — Install GitNexus to auto-unlock semantic search, call graphs, and impact analysis for every ModuleAgent.
+**GitNexus Graph Enrichment (optional)** — Install [GitNexus](https://github.com/abhigyanpatwari/GitNexus) to auto-unlock graph-enriched answers. The Router LLM decides when a question needs structural analysis (call chains, dependencies, impact) and queries GitNexus automatically — combining precise graph data with semantic understanding from agent docs.
 
 ---
 
@@ -152,8 +152,8 @@ antigravity-workspace-template/
         ├── hub/             # ★ Core: multi-agent cluster
         │   ├── agents.py    #   Router + ModuleAgent + GitAgent
         │   ├── contracts.py #   Pydantic models: claims, evidence, refresh status
-        │   ├── ask_pipeline.py    # structured-facts + legacy-swarm ask
-        │   ├── refresh_pipeline.py # evidence-driven refresh orchestration
+        │   ├── ask_pipeline.py    # agent.md + graph-enriched ask
+        │   ├── refresh_pipeline.py # LLM-driven refresh → agents/*.md + map.md
         │   ├── ask_tools.py
         │   ├── scanner.py   #   multi-language project scanning
         │   ├── module_grouping.py # smart functional file grouping
@@ -211,15 +211,16 @@ Creates `AGENTS.md` (authoritative behavior rules), IDE bootstrap files (`.curso
 ag-refresh --workspace my-project
 ```
 
-**8-step pipeline:**
+**9-step pipeline:**
 1. Scan codebase (languages, frameworks, structure)
 2. Multi-agent pipeline generates `conventions.md`
-3. Generate `structure.md` structure map
+3. Generate `structure.md` — language-agnostic file tree with line counts
 4. Build knowledge graph (`knowledge_graph.json` + mermaid)
 5. Write document/data/media indexes
-6. **Smart functional grouping** — group files by import graph + directory + prefix, pre-load into context (~30K tokens per sub-agent), filter out build artifacts (dist, bundles, vendor, compiled files). Each sub-agent outputs **structured JSON claims** with evidence spans (file + line range). Multi-group modules merge claims into a unified module facts document (`_facts.json`). Supports Python, TS/JS, Go, Rust, Java, Kotlin, Swift, C/C++, C#.
+6. **LLM full-context analysis** — group files by import graph + directory + prefix, pre-load into context (~30K tokens per sub-agent), filter out build artifacts. Each sub-agent reads the full source code and outputs a **comprehensive Markdown knowledge document** (`agents/*.md`). Large modules get multiple agent docs (one per group, no merging). Global API concurrency control prevents rate-limiting. **Fully language-agnostic** — works with any programming language.
 7. **RefreshGitAgent** analyzes git history, generates `_git_insights.md`
-8. **RegistryAgent** reads all knowledge artifacts → calls LLM → generates `module_registry.md` (2-3 sentence semantic description per module, used by Router for intelligent routing)
+8. **Map Agent** reads all agent docs → generates `map.md` (module routing index with descriptions and key topics)
+9. **GitNexus indexing** (optional) — runs `gitnexus analyze` to build a Tree-sitter code graph (16 languages, call chains, dependencies). Auto-skipped if GitNexus is not installed.
 
 ### 3. `ag-ask` — Router-based Q&A
 
@@ -227,7 +228,11 @@ ag-refresh --workspace my-project
 ag-ask "How does auth work in this project?"
 ```
 
-When structured module facts (`_facts.json`) are available, the ask pipeline selects relevant claims, verifies them against live source, and composes a grounded answer — no multi-agent swarm needed. Falls back to the legacy Router → ModuleAgent/GitAgent swarm when structured facts are not yet generated. For cross-module questions, agents can handoff to each other.
+The ask pipeline uses a **dual-path architecture**:
+- **Semantic path**: Router reads `map.md` → selects modules → reads `agents/*.md` → LLM answers with code references. Multiple agent docs are read in parallel, then a Synthesizer combines answers.
+- **Graph path** (automatic): Router LLM decides if the question needs structural analysis → queries GitNexus for call chains, dependencies, or impact → injects graph data into the answer context. Silently skipped if GitNexus is not installed.
+
+Falls back to the legacy Router → ModuleAgent/GitAgent swarm when agent docs are not yet generated.
 
 ---
 
@@ -284,23 +289,25 @@ claude mcp add antigravity ag-mcp -- --workspace /path/to/project
 The engine's core is **a dynamically created Agent cluster per code module**:
 
 ```
- ag-refresh (v2 — smart grouping):         ag-ask:
+ ag-refresh:                                 ag-ask:
 
- For each module:                          Router (reads module_registry.md)
- ┌ Group files by import graph               ├──→ Module_engine (pre-loaded engine.md)
- ├ Pre-load ~30K tokens per sub-agent        ├──→ Module_cli (pre-loaded cli.md)
- ├ Filter out build artifacts                ├──→ GitAgent (pre-loaded _git.md)
- ├ Sub-agents → structured JSON claims       └──→ Claims verified against live source
- ├ Merge claims into _facts.json
- └─ RegistryAgent ────→ registry.md
+ For each module:                            Router (reads map.md)
+ ┌ Group files by import graph                 ├── GRAPH: no → read agents/*.md → LLM answer
+ ├ Pre-load ~30K tokens per sub-agent          └── GRAPH: yes → query GitNexus graph
+ ├ Filter out build artifacts                        → graph data + agents/*.md → LLM answer
+ ├ Sub-agents → Markdown agent docs
+ ├ agents/{module}.md (or /group_N.md)
+ ├ Map Agent → map.md
+ └ GitNexus analyze (optional)
 ```
 
 **Key innovations:**
-- **Smart grouping**: Files grouped by knowledge-graph import relationships, not arbitrary token splits. Build artifacts (dist/, bundles, vendor, compiled) automatically filtered out.
-- **Pre-loaded context**: Source code injected directly into agent instructions — zero tool calls needed. A module that previously required 16 LLM turns now needs just 1.
-- **Structured evidence**: Each sub-agent outputs JSON claims with evidence spans (file path + line range). Claims are merged per module into `_facts.json`, enabling verification-based answering.
-- **Module registry**: RegistryAgent summarizes each module's responsibilities. Router knows *what each module does*, enabling accurate routing ("database schema" → `src_storage`).
-- **Multi-language**: Module detection works across Python, TypeScript/JavaScript, Go, Rust, Java, Kotlin, Swift, C/C++, and C#.
+- **LLM as analyzer**: No AST parsing or regex — source code is fed directly to LLMs for analysis. Works with any programming language out of the box.
+- **Smart grouping**: Files grouped by import relationships, directory co-location, and filename prefixes. Build artifacts automatically filtered out. Hard character limit (800K) prevents context overflow.
+- **No information loss**: Large modules produce multiple `agent.md` files (one per group) — no merging or compression. During `ag-ask`, multiple agent docs are read by parallel LLM calls, then a Synthesizer combines answers.
+- **Graph-enriched answers**: Router LLM automatically decides when a question needs structural data (call chains, dependencies, impact) and queries GitNexus. Combines precise graph relationships with semantic understanding.
+- **Global API concurrency control**: `AG_API_CONCURRENCY` limits total simultaneous LLM calls across all modules, preventing rate-limiting.
+- **Language-agnostic module detection**: Pure directory structure — no `__init__.py` or any language-specific marker required.
 
 ```bash
 # ModuleAgents self-learn your codebase
@@ -344,33 +351,47 @@ Set `MCP_ENABLED=true` in `.env`.
 </details>
 
 <details>
-<summary><b>GitNexus Integration</b> — Optional deep code intelligence via knowledge graph</summary>
+<summary><b>GitNexus Graph Enrichment</b> — Automatic structural intelligence for ask queries</summary>
 
-[GitNexus](https://github.com/abhigyanpatwari/GitNexus) is a **third-party tool** that builds a code knowledge graph using Tree-sitter AST parsing. Antigravity provides built-in integration hooks — when you install GitNexus separately, `ag-ask` automatically detects it and unlocks three additional tools:
+[GitNexus](https://github.com/abhigyanpatwari/GitNexus) builds a code knowledge graph using **Tree-sitter AST parsing** (16 languages). When installed, Antigravity integrates it at two levels:
 
-| Tool | What it does |
-|:-----|:-------------|
-| `gitnexus_query` | Hybrid search (BM25 + semantic) — better than grep for "how does auth work?" |
+**1. Refresh-time indexing** — `ag-refresh` automatically runs `gitnexus analyze` (Step 9) to build/update the code graph. Skipped silently if GitNexus is not installed.
+
+**2. Ask-time graph enrichment** — The Router LLM decides whether a question needs structural analysis:
+- "What does the auth module do?" → `GRAPH: no` → pure agent.md answer
+- "Who calls handleLogin?" → `GRAPH: yes` → queries GitNexus → graph data + agent.md → enriched answer
+
+```
+User: "What functions call the send method in gateway?"
+
+Router: MODULES: gateway, tests_gateway | GRAPH: yes
+  → GitNexus query returns call chains with confidence scores
+  → Agent docs provide semantic context (what each caller does)
+  → Combined answer: precise call chain + file paths + line numbers + purpose
+```
+
+| Capability | What it provides |
+|:-----------|:-----------------|
+| `gitnexus_query` | Hybrid search (BM25 + semantic) — execution flows, not just files |
 | `gitnexus_context` | 360-degree symbol view: callers, callees, references, definition |
 | `gitnexus_impact` | Blast radius analysis — what breaks if you change a symbol? |
 
-> **Note:** GitNexus is NOT bundled with Antigravity. It is an independent project that requires separate installation via npm. Antigravity works fully without it — GitNexus is an optional enhancement for deeper code understanding.
+> **Note:** GitNexus is NOT bundled with Antigravity. It requires separate installation via npm (`npm install -g gitnexus`). Antigravity works fully without it — when not installed, all graph features are silently skipped with zero overhead.
 
-**How to enable (3 steps):**
+**How to enable:**
 
 ```bash
 # 1. Install GitNexus (requires Node.js)
 npm install -g gitnexus
 
-# 2. Index your project (one-time, creates a local knowledge graph)
-cd my-project
-gitnexus analyze .
+# 2. Refresh (auto-indexes the code graph)
+ag-refresh --workspace my-project
 
-# 3. Use ag-ask as usual — GitNexus tools are auto-detected
-ag-ask "How does the authentication flow work?"
+# 3. Ask — graph enrichment is automatic
+ag-ask "Who calls the send method in gateway adapters?"
+# Router decides: GRAPH: yes → queries GitNexus → enriched answer
 ```
 
-**How the integration works:** `ask_tools.py` checks if the `gitnexus` CLI is available on your system. If found, it registers `gitnexus_query`, `gitnexus_context`, and `gitnexus_impact` as additional tools for every ModuleAgent. If not found, these tools are simply absent — zero overhead, no errors.
 </details>
 
 
@@ -459,10 +480,12 @@ OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
 OPENAI_API_KEY=your-key
 OPENAI_MODEL=your-model
 
-# The single most impactful tuning: raise ask timeout from 45s to 120s
+# Tuning — raise timeouts for large repos
 AG_ASK_TIMEOUT_SECONDS=120
 AG_REFRESH_AGENT_TIMEOUT_SECONDS=180
-AG_MODULE_AGENT_TIMEOUT_SECONDS=90
+AG_MODULE_AGENT_TIMEOUT_SECONDS=300
+AG_API_CONCURRENCY=5           # Max simultaneous LLM calls (prevents rate-limiting)
+AG_MAX_GROUP_CHARS=800000      # Hard char limit per group (prevents context overflow)
 ```
 
 > Works with any OpenAI-compatible provider: **NVIDIA**, **OpenAI**, **Ollama**, **vLLM**, **LM Studio**, **Groq**, **MiniMax**, etc.
