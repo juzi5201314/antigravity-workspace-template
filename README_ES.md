@@ -14,6 +14,7 @@ Idioma: [English](README.md) | [中文](README_CN.md) | **Español**
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/study8677/antigravity-workspace-template/test.yml?style=for-the-badge&label=CI)](https://github.com/study8677/antigravity-workspace-template/actions)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-Docs-blue?style=for-the-badge&logo=gitbook&logoColor=white)](https://deepwiki.com/study8677/antigravity-workspace-template)
+[![NLPM](https://img.shields.io/badge/NLPM-audited-7C3AED?style=for-the-badge)](https://github.com/xiaolai/nlpm-for-claude)
 
 <br/>
 
@@ -118,6 +119,8 @@ ag init mi-proyecto && cd mi-proyecto
 **GitAgent** — Un agente dedicado a analizar el historial git — entiende quién cambió qué y por qué.
 
 **Enriquecimiento de Grafos GitNexus (opcional)** — Instala [GitNexus](https://github.com/abhigyanpatwari/GitNexus) para desbloquear respuestas enriquecidas con grafos. El Router LLM decide cuándo una pregunta necesita análisis estructural (cadenas de llamadas, dependencias, impacto) y consulta GitNexus automáticamente — combinando datos precisos del grafo con comprensión semántica de los agent docs.
+
+**Feedback de auditoría NLPM** — Este repositorio se ha beneficiado de [NLPM](https://github.com/xiaolai/nlpm-for-claude), un linter de programación en lenguaje natural para plugins de Claude Code, skills y definiciones de agentes creado por [xiaolai](https://github.com/xiaolai). Su auditoría ayudó a encontrar mejoras útiles en frontmatter de skills e higiene de dependencias.
 
 ---
 
@@ -559,6 +562,15 @@ Evaluado contra [OpenCMO](https://github.com/study8677/OpenCMO) (Python + React/
         <b>Aravindh Balaji</b>
       </a><br/>
       <sub>Superficie de instrucciones unificada en torno a <code>AGENTS.md</code> (#41)</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="20%">
+      <a href="https://github.com/xiaolai">
+        <img src="https://github.com/xiaolai.png" width="80" /><br/>
+        <b>xiaolai</b>
+      </a><br/>
+      <sub>Feedback de auditoría <a href="https://github.com/xiaolai/nlpm-for-claude">NLPM</a> · Fixes de frontmatter de skills · Revisión de higiene de dependencias (#51, #52, #53)</sub>
     </td>
   </tr>
 </table>

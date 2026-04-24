@@ -166,6 +166,7 @@ Bienvenemos contribuciones en todos los niveles:
 - [@Subham-KRLX](https://github.com/Subham-KRLX) — Añadió carga dinámica de herramientas y contexto (Fixes #4) y el protocolo de clúster multi‑agente (Fixes #6).
 - [@SunkenCost](https://github.com/SunkenCost) — Comando `ag clean` y protección de entrada `__main__` (#37).
 - [@aravindhbalaji04](https://github.com/aravindhbalaji04) — Superficie de instrucciones unificada en torno a `AGENTS.md` (#41).
+- [@xiaolai](https://github.com/xiaolai) — Aportó feedback de auditoría con [NLPM](https://github.com/xiaolai/nlpm-for-claude), mejorando frontmatter de skills e higiene de dependencias (#51, #52, #53).
 
 ## 📄 Licencia
 

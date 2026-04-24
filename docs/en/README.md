@@ -166,6 +166,7 @@ See a typo or unclear section? Submit a PR to improve the docs!
 - [@Subham-KRLX](https://github.com/Subham-KRLX) — Added dynamic tools and context loading (Fixes #4) and the multi-agent cluster protocol (Fixes #6).
 - [@SunkenCost](https://github.com/SunkenCost) — Added `ag clean` command and `__main__` entry-point guard (#37).
 - [@aravindhbalaji04](https://github.com/aravindhbalaji04) — Unified instruction surface around `AGENTS.md` (#41).
+- [@xiaolai](https://github.com/xiaolai) — Provided [NLPM](https://github.com/xiaolai/nlpm-for-claude) audit feedback that improved skill frontmatter and dependency hygiene (#51, #52, #53).
 
 ## 📄 License
 

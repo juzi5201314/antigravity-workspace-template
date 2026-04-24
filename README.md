@@ -14,6 +14,7 @@ Language: **English** | [中文](README_CN.md) | [Español](README_ES.md)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/study8677/antigravity-workspace-template/test.yml?style=for-the-badge&label=CI)](https://github.com/study8677/antigravity-workspace-template/actions)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-Docs-blue?style=for-the-badge&logo=gitbook&logoColor=white)](https://deepwiki.com/study8677/antigravity-workspace-template)
+[![NLPM](https://img.shields.io/badge/NLPM-audited-7C3AED?style=for-the-badge)](https://github.com/xiaolai/nlpm-for-claude)
 
 <br/>
 
@@ -118,6 +119,8 @@ ag init my-project && cd my-project
 **GitAgent** — A dedicated agent for analyzing git history — understands who changed what and why.
 
 **GitNexus Graph Enrichment (optional)** — Install [GitNexus](https://github.com/abhigyanpatwari/GitNexus) to auto-unlock graph-enriched answers. The Router LLM decides when a question needs structural analysis (call chains, dependencies, impact) and queries GitNexus automatically — combining precise graph data with semantic understanding from agent docs.
+
+**NLPM Audit Feedback** — This repository has benefited from [NLPM](https://github.com/xiaolai/nlpm-for-claude), a natural-language programming linter for Claude Code plugins, skills, and agent definitions by [xiaolai](https://github.com/xiaolai). Its audit helped identify useful improvements in skill frontmatter and dependency hygiene.
 
 ---
 
@@ -617,6 +620,15 @@ Ideas are contributions too! Open an [issue](https://github.com/study8677/antigr
         <b>Aravindh Balaji</b>
       </a><br/>
       <sub>Unified instruction surface around <code>AGENTS.md</code> (#41)</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="20%">
+      <a href="https://github.com/xiaolai">
+        <img src="https://github.com/xiaolai.png" width="80" /><br/>
+        <b>xiaolai</b>
+      </a><br/>
+      <sub><a href="https://github.com/xiaolai/nlpm-for-claude">NLPM</a> audit feedback · Skill frontmatter fixes · Dependency hygiene review (#51, #52, #53)</sub>
     </td>
   </tr>
 </table>
