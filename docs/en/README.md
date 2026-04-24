@@ -178,3 +178,5 @@ This project is licensed under the **MIT License**. See [LICENSE](../../LICENSE)
 **Version:** Phase 10 (Knowledge Hub) ✅ — structured evidence pipeline + multi-language module support
 
 **Happy building with Antigravity!** 🚀
+
+Friendly Link: [LINUX DO](https://linux.do/)

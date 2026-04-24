@@ -630,4 +630,6 @@ MIT License. 详见 [LICENSE](LICENSE)。
 
 *为 AI 原生开发时代而构建*
 
+友情链接：[LINUX DO](https://linux.do/)
+
 </div>

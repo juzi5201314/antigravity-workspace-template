@@ -159,3 +159,5 @@ MIT License，详见仓库根目录 `LICENSE`。
 **当前版本：Phase 10（知识中枢）✅ —— 结构化证据管道 + 多语言模块支持**
 
 祝构建愉快！🚀
+
+友情链接：[LINUX DO](https://linux.do/)

@@ -649,4 +649,6 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 *Built for the AI-native development era*
 
+Friendly Link: [LINUX DO](https://linux.do/)
+
 </div>

@@ -178,3 +178,5 @@ Este proyecto está bajo la licencia **MIT**. Ver [LICENSE](../../LICENSE) para 
 **Versión:** Fase 10 (Knowledge Hub) ✅ — pipeline de evidencia estructurada + soporte multi-lenguaje
 
 **¡Feliz construcción con Antigravity!** 🚀
+
+Enlace amigo: [LINUX DO](https://linux.do/)

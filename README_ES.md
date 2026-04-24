@@ -591,4 +591,6 @@ Licencia MIT. Ver [LICENSE](LICENSE) para detalles.
 
 *Construido para la era del desarrollo AI-nativo*
 
+Enlace amigo: [LINUX DO](https://linux.do/)
+
 </div>
