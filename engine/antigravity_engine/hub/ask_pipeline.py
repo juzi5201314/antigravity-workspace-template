@@ -24,8 +24,104 @@ from antigravity_engine.hub.contracts import (
     VerificationResult,
     WorkerEvidence,
 )
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents.result import RunResult, RunResultStreaming
 
 logger = logging.getLogger(__name__)
+
+
+async def _run_with_optional_stream(
+    agent: "Agent",
+    prompt: str,
+    max_turns: int = 12,
+    timeout: float | None = None,
+    stream_enabled: bool = False,
+    progress_label: str | None = None,
+) -> str:
+    """Execute agent with optional streaming support."""
+    from agents import Runner
+
+    if not stream_enabled:
+        # Non-streaming: use existing pattern
+        if timeout and timeout > 0:
+            result = await asyncio.wait_for(
+                Runner.run(agent, prompt, max_turns=max_turns),
+                timeout=timeout,
+            )
+        else:
+            result = await Runner.run(agent, prompt, max_turns=max_turns)
+        return str(result.final_output)
+
+    # Streaming mode
+    stream_result = Runner.run_streamed(agent, prompt, max_turns=max_turns)
+
+    # For timeout with streaming, wrap the event consumption
+    try:
+        if timeout and timeout > 0:
+            return await asyncio.wait_for(
+                _consume_stream_events(stream_result, progress_label),
+                timeout=timeout,
+            )
+        else:
+            return await _consume_stream_events(stream_result, progress_label)
+    except TimeoutError:
+        await stream_result.cancel()
+        raise
+
+
+async def _consume_stream_events(
+    stream_result: "RunResultStreaming",
+    progress_label: str | None = None,
+) -> str:
+    """Consume streaming events and return final output."""
+    from agents.item_helpers import ItemHelpers
+
+    if progress_label:
+        print(f"[stream] {progress_label}", file=sys.stderr, flush=True)
+
+    async for event in stream_result.stream_events():
+        # Skip raw response events (token-level - too verbose)
+        if event.type == "raw_response_event":
+            continue
+
+        # Track agent changes
+        elif event.type == "agent_updated_stream_event":
+            print(
+                f"[stream] → Agent: {event.new_agent.name}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        # Handle generated items
+        elif event.type == "run_item_stream_event":
+            item = event.item
+
+            if item.type == "tool_call_item":
+                print("[stream] ⚙ Calling tool...", file=sys.stderr, flush=True)
+
+            elif item.type == "tool_call_output_item":
+                output_preview = str(getattr(item, 'output', ''))[:100]
+                print(
+                    f"[stream] ⚙ Tool output: {output_preview}...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            elif item.type == "message_output_item":
+                content = ItemHelpers.text_message_output(item)
+                if content:
+                    preview = content[:200] if len(content) > 200 else content
+                    if len(content) > 200:
+                        preview += "..."
+                    print(
+                        f"[stream] 📝 {preview}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+    return str(stream_result.final_output)
 
 
 async def ask_pipeline(workspace: Path, question: str) -> str:
@@ -146,13 +242,14 @@ async def _ask_with_legacy_swarm(workspace: Path, question: str) -> str:
     ask_timeout = float(os.environ.get("AG_ASK_TIMEOUT_SECONDS", "45"))
     try:
         try:
-            if ask_timeout > 0:
-                result = await asyncio.wait_for(
-                    Runner.run(agent, prompt, max_turns=12),
-                    timeout=ask_timeout,
-                )
-            else:
-                result = await Runner.run(agent, prompt, max_turns=12)
+            result_text = await _run_with_optional_stream(
+                agent=agent,
+                prompt=prompt,
+                max_turns=12,
+                timeout=ask_timeout if ask_timeout > 0 else None,
+                stream_enabled=settings.STREAM_ENABLED,
+                progress_label="Analyzing with multi-agent swarm...",
+            )
         finally:
             if mcp_manager is not None:
                 try:
@@ -164,7 +261,7 @@ async def _ask_with_legacy_swarm(workspace: Path, question: str) -> str:
 
     print("[3/3] Synthesizing answer...", file=sys.stderr)
 
-    return result.final_output
+    return result_text
 
 
 # ---------------------------------------------------------------------------
@@ -423,20 +520,21 @@ Module Map:
         instructions="Output ONLY in the exact format: MODULES: ... and GRAPH: yes/no. No other text.",
         model=model,
     )
+    settings = get_settings()
     ask_timeout = float(os.environ.get("AG_ASK_TIMEOUT_SECONDS", "45"))
     try:
-        if ask_timeout > 0:
-            result = await asyncio.wait_for(
-                Runner.run(router_agent, router_prompt, max_turns=1),
-                timeout=ask_timeout,
-            )
-        else:
-            result = await Runner.run(router_agent, router_prompt, max_turns=1)
+        router_output = await _run_with_optional_stream(
+            agent=router_agent,
+            prompt=router_prompt,
+            max_turns=1,
+            timeout=ask_timeout if ask_timeout > 0 else None,
+            stream_enabled=settings.STREAM_ENABLED,
+            progress_label="Routing question via map.md...",
+        )
     except Exception:
         return None
 
     # Parse Router output: MODULES + GRAPH decision
-    router_output = str(result.final_output).strip()
     raw_modules, needs_graph = _parse_router_output(router_output)
 
     # Collect known module names from agents/ directory
@@ -526,15 +624,16 @@ Knowledge:
             model=model,
         )
         try:
-            if ask_timeout > 0:
-                result = await asyncio.wait_for(
-                    Runner.run(answer_agent, answer_prompt, max_turns=1),
-                    timeout=ask_timeout,
-                )
-            else:
-                result = await Runner.run(answer_agent, answer_prompt, max_turns=1)
+            answer = await _run_with_optional_stream(
+                agent=answer_agent,
+                prompt=answer_prompt,
+                max_turns=1,
+                timeout=ask_timeout if ask_timeout > 0 else None,
+                stream_enabled=settings.STREAM_ENABLED,
+                progress_label="Generating answer from agent.md...",
+            )
             print("[4/4] Answer synthesized.", file=sys.stderr)
-            return str(result.final_output).strip()
+            return answer
         except Exception:
             return None
     else:
@@ -542,6 +641,10 @@ Knowledge:
         async def _answer_from_doc(
             mod_name: str, knowledge: str
         ) -> tuple[str, str | None]:
+            """Answer from a single module's knowledge document.
+
+            Note: streaming is disabled for parallel calls to avoid output interleaving.
+            """
             prompt = f"""\
 Answer this question using ONLY the module knowledge below.
 Be specific — cite file paths, function names.
@@ -561,14 +664,15 @@ Knowledge:
             )
             try:
                 async with _ask_api_sem:
-                    if ask_timeout > 0:
-                        res = await asyncio.wait_for(
-                            Runner.run(agent, prompt, max_turns=1),
-                            timeout=ask_timeout,
-                        )
-                    else:
-                        res = await Runner.run(agent, prompt, max_turns=1)
-                return mod_name, str(res.final_output).strip()
+                    answer = await _run_with_optional_stream(
+                        agent=agent,
+                        prompt=prompt,
+                        max_turns=1,
+                        timeout=ask_timeout if ask_timeout > 0 else None,
+                        stream_enabled=False,
+                        progress_label=None,
+                    )
+                return mod_name, answer
             except Exception:
                 return mod_name, None
 
@@ -609,15 +713,16 @@ Partial answers:
             model=model,
         )
         try:
-            if ask_timeout > 0:
-                result = await asyncio.wait_for(
-                    Runner.run(synth_agent, synth_prompt, max_turns=1),
-                    timeout=ask_timeout,
-                )
-            else:
-                result = await Runner.run(synth_agent, synth_prompt, max_turns=1)
+            answer = await _run_with_optional_stream(
+                agent=synth_agent,
+                prompt=synth_prompt,
+                max_turns=1,
+                timeout=ask_timeout if ask_timeout > 0 else None,
+                stream_enabled=settings.STREAM_ENABLED,
+                progress_label="Synthesizing answers from multiple modules...",
+            )
             print("[4/4] Answer synthesized from multiple modules.", file=sys.stderr)
-            return str(result.final_output).strip()
+            return answer
         except Exception:
             # Return the first valid answer as fallback
             return valid_answers[0][1]
