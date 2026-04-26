@@ -77,6 +77,21 @@ def _import_agent():
         ) from None
 
 
+def _get_reasoning_effort() -> str | None:
+    """Get reasoning_effort from AG_REASONING_EFFORT env var.
+
+    Passes through any value directly to the OpenAI API.
+    Common values: low, medium, high (for o1/o3 models)
+    Returns None if env var is not set.
+    """
+    import os
+
+    effort = os.environ.get("AG_REASONING_EFFORT", "").strip()
+    if effort:
+        return effort
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Refresh Swarm — 3 agents: ScanAnalyst → ArchitectureReviewer → ConventionWriter
 # ---------------------------------------------------------------------------
@@ -149,6 +164,7 @@ def build_refresh_swarm(model: str):
         name="ConventionWriter",
         instructions=_CONVENTION_WRITER_INSTRUCTIONS,
         model=model,
+        reasoning_effort=_get_reasoning_effort(),
     )
 
     architecture_reviewer = Agent(
@@ -156,6 +172,7 @@ def build_refresh_swarm(model: str):
         instructions=_ARCHITECTURE_REVIEWER_INSTRUCTIONS,
         model=model,
         handoffs=[convention_writer],
+        reasoning_effort=_get_reasoning_effort(),
     )
 
     scan_analyst = Agent(
@@ -163,6 +180,7 @@ def build_refresh_swarm(model: str):
         instructions=_SCAN_ANALYST_INSTRUCTIONS,
         model=model,
         handoffs=[architecture_reviewer],
+        reasoning_effort=_get_reasoning_effort(),
     )
 
     return scan_analyst
@@ -374,6 +392,7 @@ def build_map_agent(model: str):
         name="MapAgent",
         instructions=_MAP_AGENT_INSTRUCTIONS,
         model=model,
+        reasoning_effort=_get_reasoning_effort(),
     )
 
 
@@ -595,6 +614,7 @@ def build_refresh_module_swarm(
             instructions=instructions,
             model=model,
             tools=_wrap_tools(all_tools),
+            reasoning_effort=_get_reasoning_effort(),
         )
         agents_list.append((mod, agent))
 
@@ -694,6 +714,7 @@ def build_refresh_module_swarm_v2(
                 name=f"RefreshModule_{mod}_sub{i}_{group.name}",
                 instructions=instructions,
                 model=model,
+                reasoning_effort=_get_reasoning_effort(),
             )
             group_entries.append((group.name, group, agent))
 
@@ -732,6 +753,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
         instructions=instructions,
         model=model,
         tools=_wrap_tools(all_tools),
+        reasoning_effort=_get_reasoning_effort(),
     )
 
 
@@ -772,6 +794,7 @@ def build_ask_swarm(
                 "the provided context.  Be concise and cite file paths."
             ),
             model=model,
+            reasoning_effort=_get_reasoning_effort(),
         )
 
     from antigravity_engine.hub.ask_tools import (
@@ -818,6 +841,7 @@ def build_ask_swarm(
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
+            reasoning_effort=_get_reasoning_effort(),
         )
         workers.append(agent)
 
@@ -836,6 +860,7 @@ def build_ask_swarm(
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
         tools=_wrap_tools(git_all_tools) + wrapped_mcp,
+        reasoning_effort=_get_reasoning_effort(),
     )
     workers.append(git_agent)
 
@@ -851,6 +876,7 @@ def build_ask_swarm(
         ),
         model=model,
         tools=_wrap_tools(full_tools) + wrapped_mcp,
+        reasoning_effort=_get_reasoning_effort(),
     )
     workers.append(full_worker)
 
@@ -885,6 +911,7 @@ def build_ask_swarm(
         instructions=router_instructions,
         model=model,
         handoffs=workers,
+        reasoning_effort=_get_reasoning_effort(),
     )
 
     # Star topology: workers hand off back to Router only.
