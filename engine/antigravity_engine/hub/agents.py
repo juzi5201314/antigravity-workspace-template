@@ -177,7 +177,6 @@ def build_refresh_swarm(model: str):
         instructions=_CONVENTION_WRITER_INSTRUCTIONS,
         model=model,
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
     architecture_reviewer = Agent(
@@ -186,7 +185,6 @@ def build_refresh_swarm(model: str):
         model=model,
         handoffs=[convention_writer],
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
     scan_analyst = Agent(
@@ -195,7 +193,6 @@ def build_refresh_swarm(model: str):
         model=model,
         handoffs=[architecture_reviewer],
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
     return scan_analyst
@@ -408,7 +405,6 @@ def build_map_agent(model: str):
         instructions=_MAP_AGENT_INSTRUCTIONS,
         model=model,
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
 
@@ -631,7 +627,6 @@ def build_refresh_module_swarm(
             model=model,
             tools=_wrap_tools(all_tools),
             **_get_reasoning_effort(),
-            stream=_get_stream_enabled(),
         )
         agents_list.append((mod, agent))
 
@@ -732,7 +727,6 @@ def build_refresh_module_swarm_v2(
                 instructions=instructions,
                 model=model,
                 **_get_reasoning_effort(),
-                stream=_get_stream_enabled(),
             )
             group_entries.append((group.name, group, agent))
 
@@ -772,7 +766,6 @@ def build_refresh_git_agent(model: str, workspace: Path):
         model=model,
         tools=_wrap_tools(all_tools),
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
 
@@ -814,7 +807,6 @@ def build_ask_swarm(
             ),
             model=model,
             **_get_reasoning_effort(),
-            stream=_get_stream_enabled(),
         )
 
     from antigravity_engine.hub.ask_tools import (
@@ -862,7 +854,6 @@ def build_ask_swarm(
             model=model,
             tools=wrapped + wrapped_mcp,
             **_get_reasoning_effort(),
-            stream=_get_stream_enabled(),
         )
         workers.append(agent)
 
@@ -882,7 +873,6 @@ def build_ask_swarm(
         model=model,
         tools=_wrap_tools(git_all_tools) + wrapped_mcp,
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
     workers.append(git_agent)
 
@@ -899,7 +889,6 @@ def build_ask_swarm(
         model=model,
         tools=_wrap_tools(full_tools) + wrapped_mcp,
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
     workers.append(full_worker)
 
@@ -935,7 +924,6 @@ def build_ask_swarm(
         model=model,
         handoffs=workers,
         **_get_reasoning_effort(),
-        stream=_get_stream_enabled(),
     )
 
     # Star topology: workers hand off back to Router only.
