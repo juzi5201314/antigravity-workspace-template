@@ -120,23 +120,23 @@ async def _run_with_retry(
             return await coro_fn(*args, **kwargs)
         except Exception as exc:
             last_exc = exc
-            # 最后一次尝试失败，抛出异常
+            # Last attempt failed, re-raise
             if attempt >= max_retries:
                 raise
-            # 不可重试的错误，直接抛出
+            # Non-retryable error, re-raise immediately
             if not _is_retryable_error(exc):
                 raise
-            # 计算延迟（指数退避）
+            # Calculate delay (exponential backoff)
             delay = base_delay * (2 ** attempt)
             label = f" ({context})" if context else ""
-            # 清理错误消息中的换行符，避免日志格式混乱
+            # Clean newlines from error message to prevent log format issues
             error_msg = str(exc).replace('\n', ' ').replace('\r', '')[:150]
             print(
-                f"  ⚠ Attempt {attempt + 1} failed{label}: {error_msg}. {delay}s后重试...",
+                f"  ⚠ Attempt {attempt + 1} failed{label}: {error_msg}. Retrying in {delay}s...",
                 file=sys.stderr,
             )
             await asyncio.sleep(delay)
-    raise last_exc
+    # Unreachable - loop always returns or raises
 
 
 
