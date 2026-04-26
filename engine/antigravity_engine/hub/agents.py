@@ -77,19 +77,19 @@ def _import_agent():
         ) from None
 
 
-def _get_reasoning_effort() -> str | None:
-    """Get reasoning_effort from AG_REASONING_EFFORT env var.
+def _get_reasoning_effort() -> dict:
+    """Get reasoning_effort kwargs from AG_REASONING_EFFORT env var.
 
     Passes through any value directly to the OpenAI API.
     Common values: low, medium, high (for o1/o3 models)
-    Returns None if env var is not set.
+    Returns empty dict if env var is not set (for SDK compatibility).
     """
     import os
 
     effort = os.environ.get("AG_REASONING_EFFORT", "").strip()
     if effort:
-        return effort
-    return None
+        return {"reasoning_effort": effort}
+    return {}
 
 
 def _get_stream_enabled() -> bool:
@@ -176,7 +176,7 @@ def build_refresh_swarm(model: str):
         name="ConventionWriter",
         instructions=_CONVENTION_WRITER_INSTRUCTIONS,
         model=model,
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
@@ -185,7 +185,7 @@ def build_refresh_swarm(model: str):
         instructions=_ARCHITECTURE_REVIEWER_INSTRUCTIONS,
         model=model,
         handoffs=[convention_writer],
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
@@ -194,7 +194,7 @@ def build_refresh_swarm(model: str):
         instructions=_SCAN_ANALYST_INSTRUCTIONS,
         model=model,
         handoffs=[architecture_reviewer],
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
@@ -407,7 +407,7 @@ def build_map_agent(model: str):
         name="MapAgent",
         instructions=_MAP_AGENT_INSTRUCTIONS,
         model=model,
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
@@ -630,7 +630,7 @@ def build_refresh_module_swarm(
             instructions=instructions,
             model=model,
             tools=_wrap_tools(all_tools),
-            reasoning_effort=_get_reasoning_effort(),
+            **_get_reasoning_effort(),
             stream=_get_stream_enabled(),
         )
         agents_list.append((mod, agent))
@@ -731,7 +731,7 @@ def build_refresh_module_swarm_v2(
                 name=f"RefreshModule_{mod}_sub{i}_{group.name}",
                 instructions=instructions,
                 model=model,
-                reasoning_effort=_get_reasoning_effort(),
+                **_get_reasoning_effort(),
                 stream=_get_stream_enabled(),
             )
             group_entries.append((group.name, group, agent))
@@ -771,7 +771,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
         instructions=instructions,
         model=model,
         tools=_wrap_tools(all_tools),
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
@@ -813,7 +813,7 @@ def build_ask_swarm(
                 "the provided context.  Be concise and cite file paths."
             ),
             model=model,
-            reasoning_effort=_get_reasoning_effort(),
+            **_get_reasoning_effort(),
             stream=_get_stream_enabled(),
         )
 
@@ -861,7 +861,7 @@ def build_ask_swarm(
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
-            reasoning_effort=_get_reasoning_effort(),
+            **_get_reasoning_effort(),
             stream=_get_stream_enabled(),
         )
         workers.append(agent)
@@ -881,7 +881,7 @@ def build_ask_swarm(
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
         tools=_wrap_tools(git_all_tools) + wrapped_mcp,
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
     workers.append(git_agent)
@@ -898,7 +898,7 @@ def build_ask_swarm(
         ),
         model=model,
         tools=_wrap_tools(full_tools) + wrapped_mcp,
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
     workers.append(full_worker)
@@ -934,7 +934,7 @@ def build_ask_swarm(
         instructions=router_instructions,
         model=model,
         handoffs=workers,
-        reasoning_effort=_get_reasoning_effort(),
+        **_get_reasoning_effort(),
         stream=_get_stream_enabled(),
     )
 
