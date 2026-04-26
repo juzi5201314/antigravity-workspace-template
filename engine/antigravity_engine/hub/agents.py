@@ -77,8 +77,8 @@ def _import_agent():
         ) from None
 
 
-def _get_model_settings() -> dict:
-    """Get Agent model settings from AG_REASONING_EFFORT env var.
+def _get_model_settings_kwargs() -> dict:
+    """Build Agent kwargs carrying model_settings from AG_REASONING_EFFORT.
 
     ``extra_body`` is the SDK escape hatch for request body fields that are
     not first-class ``Agent`` constructor arguments.
@@ -178,7 +178,7 @@ def build_refresh_swarm(model: str):
         name="ConventionWriter",
         instructions=_CONVENTION_WRITER_INSTRUCTIONS,
         model=model,
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
     architecture_reviewer = Agent(
@@ -186,7 +186,7 @@ def build_refresh_swarm(model: str):
         instructions=_ARCHITECTURE_REVIEWER_INSTRUCTIONS,
         model=model,
         handoffs=[convention_writer],
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
     scan_analyst = Agent(
@@ -194,7 +194,7 @@ def build_refresh_swarm(model: str):
         instructions=_SCAN_ANALYST_INSTRUCTIONS,
         model=model,
         handoffs=[architecture_reviewer],
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
     return scan_analyst
@@ -406,7 +406,7 @@ def build_map_agent(model: str):
         name="MapAgent",
         instructions=_MAP_AGENT_INSTRUCTIONS,
         model=model,
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
 
@@ -628,7 +628,7 @@ def build_refresh_module_swarm(
             instructions=instructions,
             model=model,
             tools=_wrap_tools(all_tools),
-            **_get_model_settings(),
+            **_get_model_settings_kwargs(),
         )
         agents_list.append((mod, agent))
 
@@ -728,7 +728,7 @@ def build_refresh_module_swarm_v2(
                 name=f"RefreshModule_{mod}_sub{i}_{group.name}",
                 instructions=instructions,
                 model=model,
-                **_get_model_settings(),
+                **_get_model_settings_kwargs(),
             )
             group_entries.append((group.name, group, agent))
 
@@ -767,7 +767,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
         instructions=instructions,
         model=model,
         tools=_wrap_tools(all_tools),
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
 
@@ -808,7 +808,7 @@ def build_ask_swarm(
                 "the provided context.  Be concise and cite file paths."
             ),
             model=model,
-            **_get_model_settings(),
+            **_get_model_settings_kwargs(),
         )
 
     from antigravity_engine.hub.ask_tools import (
@@ -855,7 +855,7 @@ def build_ask_swarm(
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
-            **_get_model_settings(),
+            **_get_model_settings_kwargs(),
         )
         workers.append(agent)
 
@@ -874,7 +874,7 @@ def build_ask_swarm(
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
         tools=_wrap_tools(git_all_tools) + wrapped_mcp,
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
     workers.append(git_agent)
 
@@ -890,7 +890,7 @@ def build_ask_swarm(
         ),
         model=model,
         tools=_wrap_tools(full_tools) + wrapped_mcp,
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
     workers.append(full_worker)
 
@@ -925,7 +925,7 @@ def build_ask_swarm(
         instructions=router_instructions,
         model=model,
         handoffs=workers,
-        **_get_model_settings(),
+        **_get_model_settings_kwargs(),
     )
 
     # Star topology: workers hand off back to Router only.
