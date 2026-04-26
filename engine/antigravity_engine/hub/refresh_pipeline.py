@@ -64,6 +64,9 @@ def _is_retryable_error(exc: Exception) -> bool:
     Returns:
         True if the error is retryable.
     """
+    # asyncio.TimeoutError has an empty str() — check type first.
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return True
     msg = str(exc).lower()
     retryable_keywords = (
         "timeout",
@@ -130,7 +133,8 @@ async def _run_with_retry(
             delay = base_delay * (2 ** attempt)
             label = f" ({context})" if context else ""
             # Clean newlines from error message to prevent log format issues
-            error_msg = str(exc).replace('\n', ' ').replace('\r', '')[:150]
+            raw_msg = str(exc).replace('\n', ' ').replace('\r', '')[:150]
+            error_msg = raw_msg or type(exc).__name__
             print(
                 f"  ⚠ Attempt {attempt + 1} failed{label}: {error_msg}. Retrying in {delay}s...",
                 file=sys.stderr,
@@ -260,7 +264,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False, failed_only: bo
             conventions_content = result.final_output
             refresh_status.stages["conventions"] = "success"
         except Exception as exc:
-            print(f"  ⚠ Conventions swarm failed: {exc}. Using fallback.", file=sys.stderr)
+            exc_msg = str(exc) or type(exc).__name__
+            print(f"  ⚠ Conventions swarm failed: {exc_msg}. Using fallback.", file=sys.stderr)
             conventions_content = _build_fallback_conventions(report)
             _mark_stage_failure(
                 refresh_status,
