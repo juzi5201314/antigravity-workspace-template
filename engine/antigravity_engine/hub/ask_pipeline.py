@@ -520,7 +520,6 @@ Module Map:
         instructions="Output ONLY in the exact format: MODULES: ... and GRAPH: yes/no. No other text.",
         model=model,
     )
-    settings = get_settings()
     ask_timeout = float(os.environ.get("AG_ASK_TIMEOUT_SECONDS", "45"))
     try:
         router_output = await _run_with_optional_stream(
