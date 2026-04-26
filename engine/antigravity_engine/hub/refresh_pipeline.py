@@ -42,12 +42,12 @@ def _get_retry_config(max_retries: int | None = None, base_delay: float | None =
     """
     if max_retries is None:
         try:
-            max_retries = int(os.environ.get("AG_REFRESH_RETRY_COUNT", "3"))
+            max_retries = max(0, int(os.environ.get("AG_REFRESH_RETRY_COUNT", "3")))
         except (ValueError, TypeError):
             max_retries = 3
     if base_delay is None:
         try:
-            base_delay = float(os.environ.get("AG_REFRESH_RETRY_DELAY", "1.0"))
+            base_delay = max(0.0, float(os.environ.get("AG_REFRESH_RETRY_DELAY", "1.0")))
         except (ValueError, TypeError):
             base_delay = 1.0
     return max_retries, base_delay
@@ -366,6 +366,8 @@ async def refresh_pipeline(workspace: Path, quick: bool = False, failed_only: bo
                 "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
             ) from None
 
+        module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
+
         # Skip module agents when failed-only mode has no modules to process
         if modules_filter is not None and not modules_filter:
             print("[7/8] No failed/partial modules to re-run. Skipping module agents.", file=sys.stderr)
@@ -379,7 +381,6 @@ async def refresh_pipeline(workspace: Path, quick: bool = False, failed_only: bo
             expected_modules = detect_modules(workspace)
             if modules_filter is not None:
                 expected_modules = [m for m in expected_modules if m in modules_filter]
-            module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
             mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
             _mod_sem = asyncio.Semaphore(mod_concurrency)
             # Global API call semaphore: limits total concurrent LLM calls

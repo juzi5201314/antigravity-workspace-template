@@ -27,7 +27,8 @@ from antigravity_engine.hub.contracts import (
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agents.result import RunResult, RunResultStreaming
+    from agents import Agent
+    from agents.result import RunResultStreaming
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ async def _run_with_optional_stream(
         else:
             return await _consume_stream_events(stream_result, progress_label)
     except TimeoutError:
-        await stream_result.cancel()
+        stream_result.cancel()
         raise
 
 

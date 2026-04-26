@@ -94,17 +94,6 @@ def _get_model_settings_kwargs() -> dict:
     return {}
 
 
-def _get_stream_enabled() -> bool:
-    """Get stream enabled status from STREAM_ENABLED env var.
-
-    Returns True if env var is set to 'true' (case-insensitive).
-    Default is False for backward compatibility.
-    """
-    import os
-
-    value = os.environ.get("STREAM_ENABLED", "").strip().lower()
-    return value == "true"
-
 
 # ---------------------------------------------------------------------------
 # Refresh Swarm — 3 agents: ScanAnalyst → ArchitectureReviewer → ConventionWriter
