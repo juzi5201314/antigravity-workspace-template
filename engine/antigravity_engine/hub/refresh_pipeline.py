@@ -30,13 +30,124 @@ from antigravity_engine.hub.contracts import (
 
 logger = logging.getLogger(__name__)
 
+def _get_retry_config(max_retries: int | None = None, base_delay: float | None = None) -> tuple[int, float]:
+    """Read retry configuration from environment variables.
 
-async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatus:
+    Args:
+        max_retries: Override for max retries (uses env var if None).
+        base_delay: Override for base delay in seconds (uses env var if None).
+
+    Returns:
+        Tuple of (max_retries, base_delay).
+    """
+    if max_retries is None:
+        try:
+            max_retries = int(os.environ.get("AG_REFRESH_RETRY_COUNT", "3"))
+        except (ValueError, TypeError):
+            max_retries = 3
+    if base_delay is None:
+        try:
+            base_delay = float(os.environ.get("AG_REFRESH_RETRY_DELAY", "1.0"))
+        except (ValueError, TypeError):
+            base_delay = 1.0
+    return max_retries, base_delay
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Check if an exception qualifies for retry.
+
+    Retries on timeout, network errors, rate limits, and 5xx server errors.
+
+    Args:
+        exc: The exception to inspect.
+
+    Returns:
+        True if the error is retryable.
+    """
+    msg = str(exc).lower()
+    retryable_keywords = (
+        "timeout",
+        "gateway time-out",
+        "504",
+        "connection",
+        "network",
+        "unreachable",
+        "refused",
+        "rate limit",
+        "ratelimit",
+        "429",
+        "502",
+        "503",
+        "500",
+        "service unavailable",
+        "bad gateway",
+        "internal server error",
+    )
+    return any(kw in msg for kw in retryable_keywords)
+
+
+async def _run_with_retry(
+    coro_fn,
+    *args,
+    max_retries: int | None = None,
+    base_delay: float | None = None,
+    timeout: float | None = None,
+    context: str = "",
+    **kwargs,
+):
+    """Run an async coroutine with retry and exponential backoff.
+
+    Args:
+        coro_fn: Async callable to execute.
+        *args: Positional arguments for ``coro_fn``.
+        max_retries: Maximum retry attempts (overrides env var).
+        base_delay: Initial delay between retries in seconds (overrides env var).
+        timeout: Per-attempt timeout in seconds (None or <=0 for no timeout).
+        context: Human-readable context string for logging.
+        **kwargs: Keyword arguments for ``coro_fn``.
+
+    Returns:
+        Result of ``coro_fn``.
+    Raises:
+        The last exception if all retries are exhausted.
+    """
+    max_retries, base_delay = _get_retry_config(max_retries, base_delay)
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            if timeout is not None and timeout > 0:
+                return await asyncio.wait_for(coro_fn(*args, **kwargs), timeout=timeout)
+            return await coro_fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            # Last attempt failed, re-raise
+            if attempt >= max_retries:
+                raise
+            # Non-retryable error, re-raise immediately
+            if not _is_retryable_error(exc):
+                raise
+            # Calculate delay (exponential backoff)
+            delay = base_delay * (2 ** attempt)
+            label = f" ({context})" if context else ""
+            # Clean newlines from error message to prevent log format issues
+            error_msg = str(exc).replace('\n', ' ').replace('\r', '')[:150]
+            print(
+                f"  ⚠ Attempt {attempt + 1} failed{label}: {error_msg}. Retrying in {delay}s...",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(delay)
+    # Unreachable - loop always returns or raises
+
+
+
+async def refresh_pipeline(workspace: Path, quick: bool = False, failed_only: bool = False) -> RefreshStatus:
     """Scan project and update .antigravity/conventions.md.
 
     Args:
         workspace: Project root directory.
         quick: If True, only scan files changed since last refresh.
+        failed_only: If True, only re-run modules that failed or were
+            partial in the previous refresh.
 
     Returns:
         Structured refresh status, including stage and module health.
@@ -141,10 +252,11 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
 
         refresh_timeout = float(os.environ.get("AG_REFRESH_AGENT_TIMEOUT_SECONDS", "90"))
         try:
-            if refresh_timeout > 0:
-                result = await asyncio.wait_for(Runner.run(agent, prompt), timeout=refresh_timeout)
-            else:
-                result = await Runner.run(agent, prompt)
+            result = await _run_with_retry(
+                Runner.run, agent, prompt,
+                timeout=refresh_timeout,
+                context="Conventions swarm",
+            )
             conventions_content = result.final_output
             refresh_status.stages["conventions"] = "success"
         except Exception as exc:
@@ -204,8 +316,43 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         refresh_status.stages["knowledge_graph"] = "skipped"
         refresh_status.stages["indexes"] = "skipped"
 
+    modules_filter: list[str] | None = None
+    if failed_only:
+        status_path = ag_dir / "status.json"
+        if status_path.is_file():
+            try:
+                prev_status_raw = json.loads(status_path.read_text(encoding="utf-8"))
+                prev_modules = prev_status_raw.get("modules", {})
+                modules_filter = [
+                    mod for mod, state in prev_modules.items()
+                    if state in ("failed", "partial")
+                ]
+                if modules_filter:
+                    print(
+                        f"[7/8] Failed-only mode: re-running {len(modules_filter)} "
+                        f"failed/partial modules...",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "[7/8] Failed-only mode: no failed/partial modules found. "
+                        "Skipping module agents.",
+                        file=sys.stderr,
+                    )
+            except Exception as exc:
+                print(
+                    f"  ⚠ Failed to load previous status: {exc}. "
+                    "Running all modules.",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                "[7/8] Failed-only mode: no previous status found. "
+                "Running all modules.",
+                file=sys.stderr,
+            )
+
     if not refresh_scan_only:
-        print("[7/8] Module agents learning codebase...", file=sys.stderr)
         from antigravity_engine.hub.agents import (
             build_refresh_module_swarm_v2,
             build_refresh_git_agent,
@@ -219,172 +366,169 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
                 "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
             ) from None
 
-        module_entries = build_refresh_module_swarm_v2(model, workspace)
-        expected_modules = detect_modules(workspace)
-        module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
-        mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
-        _mod_sem = asyncio.Semaphore(mod_concurrency)
-        # Global API call semaphore: limits total concurrent LLM calls
-        # across ALL modules and groups to avoid rate-limiting.
-        api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
-        _api_sem = asyncio.Semaphore(api_concurrency)
-        agents_dir = ag_dir / "agents"
-        agents_dir.mkdir(parents=True, exist_ok=True)
-        # Keep legacy modules dir for backward compat (will be removed in Phase 5)
-        modules_dir = ag_dir / "modules"
-        modules_dir.mkdir(parents=True, exist_ok=True)
+        # Skip module agents when failed-only mode has no modules to process
+        if modules_filter is not None and not modules_filter:
+            print("[7/8] No failed/partial modules to re-run. Skipping module agents.", file=sys.stderr)
+            refresh_status.stages["module_docs"] = "skipped"
+        else:
+            print("[7/8] Module agents learning codebase...", file=sys.stderr)
 
-        async def _run_module(entry: tuple) -> tuple[str, str]:
-            """Run one module's group agents and persist agent.md artifacts.
+            module_entries = build_refresh_module_swarm_v2(
+                model, workspace, modules_filter=modules_filter
+            )
+            expected_modules = detect_modules(workspace)
+            if modules_filter is not None:
+                expected_modules = [m for m in expected_modules if m in modules_filter]
+            module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
+            mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
+            _mod_sem = asyncio.Semaphore(mod_concurrency)
+            # Global API call semaphore: limits total concurrent LLM calls
+            # across ALL modules and groups to avoid rate-limiting.
+            api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
+            _api_sem = asyncio.Semaphore(api_concurrency)
+            agents_dir = ag_dir / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            # Keep legacy modules dir for backward compat (will be removed in Phase 5)
+            modules_dir = ag_dir / "modules"
+            modules_dir.mkdir(parents=True, exist_ok=True)
 
-            For single-group modules: writes ``agents/{module}.md``.
-            For multi-group modules: writes ``agents/{module}/group_N.md``
-            (one per group, no merging).
+            async def _run_module(entry: tuple) -> tuple[str, str]:
+                """Run one module's group agents and persist agent.md artifacts.
 
-            Args:
-                entry: Tuple of module name and group agent entries.
+                For single-group modules: writes ``agents/{module}.md``.
+                For multi-group modules: writes ``agents/{module}/group_N.md``
+                (one per group, no merging).
 
-            Returns:
-                Module identifier and resulting health state.
-            """
-            async with _mod_sem:
-                mod_name, group_entries = entry
-                num_groups = len(group_entries)
-                print(
-                    f"  → RefreshModule_{mod_name} ({num_groups} groups)...",
-                    file=sys.stderr,
-                )
+                Args:
+                    entry: Tuple of module name and group agent entries.
 
-                async def _run_sub(
-                    group_name: str,
-                    group,
-                    sagent: object,
-                ) -> tuple[str, str | None, str | None]:
-                    """Run one group agent and collect its Markdown output.
+                Returns:
+                    Module identifier and resulting health state.
+                """
+                async with _mod_sem:
+                    mod_name, group_entries = entry
+                    num_groups = len(group_entries)
+                    print(
+                        f"  → RefreshModule_{mod_name} ({num_groups} groups)...",
+                        file=sys.stderr,
+                    )
 
-                    Args:
-                        group_name: Group identifier within the module.
-                        group: Module grouping object with pre-loaded files.
-                        sagent: Agent instance for the group.
+                    async def _run_sub(
+                        group_name: str,
+                        group,
+                        sagent: object,
+                    ) -> tuple[str, str | None, str | None]:
+                        """Run one group agent and collect its Markdown output.
 
-                    Returns:
-                        Tuple of group name, Markdown output, and optional
-                        failure reason.
-                    """
-                    try:
-                        async with _api_sem:
-                            if module_timeout > 0:
-                                res = await asyncio.wait_for(
-                                    Runner.run(
-                                        sagent,
-                                        "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
-                                        max_turns=3,
-                                    ),
-                                    timeout=module_timeout,
-                                )
-                            else:
-                                res = await Runner.run(
+                        Args:
+                            group_name: Group identifier within the module.
+                            group: Module grouping object with pre-loaded files.
+                            sagent: Agent instance for the group.
+
+                        Returns:
+                            Tuple of group name, Markdown output, and optional
+                            failure reason.
+                        """
+                        try:
+                            async with _api_sem:
+                                res = await _run_with_retry(
+                                    Runner.run,
                                     sagent,
                                     "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
                                     max_turns=3,
+                                    timeout=module_timeout,
+                                    context=f"{mod_name}/{group_name}",
                                 )
-                        md_output = str(res.final_output).strip()
-                        if not md_output:
-                            return group_name, None, "empty output"
-                        print(f"    ✓ {mod_name}/{group_name}", file=sys.stderr)
-                        return group_name, md_output, None
-                    except Exception as exc:
-                        failure_reason = str(exc)
-                        print(f"    ⚠ {mod_name}/{group_name} failed: {failure_reason}", file=sys.stderr)
-                        # Build a minimal fallback from file listing
-                        fallback = _build_agent_md_fallback(mod_name, group_name, group)
-                        return group_name, fallback, failure_reason
+                            md_output = str(res.final_output).strip()
+                            if not md_output:
+                                return group_name, None, "empty output"
+                            print(f"    ✓ {mod_name}/{group_name}", file=sys.stderr)
+                            return group_name, md_output, None
+                        except Exception as exc:
+                            failure_reason = str(exc)
+                            print(f"    ⚠ {mod_name}/{group_name} failed: {failure_reason}", file=sys.stderr)
+                            # Build a minimal fallback from file listing
+                            fallback = _build_agent_md_fallback(mod_name, group_name, group)
+                            return group_name, fallback, failure_reason
 
-                sub_results = await asyncio.gather(
-                    *[_run_sub(gn, grp, sa) for gn, grp, sa in group_entries]
-                )
+                    sub_results = await asyncio.gather(
+                        *[_run_sub(gn, grp, sa) for gn, grp, sa in group_entries]
+                    )
 
-                successes: list[tuple[str, str]] = []
-                for group_name, md_output, failure_reason in sub_results:
-                    if md_output is None:
-                        _mark_module_failure(
-                            refresh_status,
-                            module=mod_name,
-                            group_name=group_name,
-                            reason=failure_reason or "group returned no output",
-                            state="failed",
-                        )
-                        continue
-                    successes.append((group_name, md_output))
-                    if failure_reason:
-                        _mark_module_failure(
-                            refresh_status,
-                            module=mod_name,
-                            group_name=group_name,
-                            reason=failure_reason,
-                            state="partial",
-                        )
+                    successes: list[tuple[str, str]] = []
+                    for group_name, md_output, failure_reason in sub_results:
+                        if md_output is None:
+                            _mark_module_failure(
+                                refresh_status,
+                                module=mod_name,
+                                group_name=group_name,
+                                reason=failure_reason or "group returned no output",
+                                state="failed",
+                            )
+                            continue
+                        successes.append((group_name, md_output))
+                        if failure_reason:
+                            _mark_module_failure(
+                                refresh_status,
+                                module=mod_name,
+                                group_name=group_name,
+                                reason=failure_reason,
+                                state="partial",
+                            )
 
-                if not successes:
-                    refresh_status.modules[mod_name] = "failed"
-                    print(f"  ⚠ RefreshModule_{mod_name} produced no output", file=sys.stderr)
-                    return mod_name, "failed"
+                    if not successes:
+                        refresh_status.modules[mod_name] = "failed"
+                        print(f"  ⚠ RefreshModule_{mod_name} produced no output", file=sys.stderr)
+                        return mod_name, "failed"
 
-                # Write agent.md artifacts
-                _write_agent_md_artifacts(
-                    agents_dir=agents_dir,
-                    module=mod_name,
-                    group_outputs=successes,
-                )
-                module_state = "success"
-                if any(reason is not None for _, _, reason in sub_results):
-                    module_state = "partial"
-                refresh_status.modules[mod_name] = module_state
-                print(f"  ✓ RefreshModule_{mod_name} done ({module_state})", file=sys.stderr)
-                return mod_name, module_state
+                    # Write agent.md artifacts
+                    _write_agent_md_artifacts(
+                        agents_dir=agents_dir,
+                        module=mod_name,
+                        group_outputs=successes,
+                    )
+                    module_state = "success"
+                    if any(reason is not None for _, _, reason in sub_results):
+                        module_state = "partial"
+                    refresh_status.modules[mod_name] = module_state
+                    print(f"  ✓ RefreshModule_{mod_name} done ({module_state})", file=sys.stderr)
+                    return mod_name, module_state
 
-        print(
-            f"  ▶ Running {len(module_entries)} modules "
-            f"(module_concurrency={mod_concurrency}, api_concurrency={api_concurrency})...",
-            file=sys.stderr,
-        )
-        module_results = await asyncio.gather(*[_run_module(e) for e in module_entries])
-        seen_modules = {name for name, _ in module_results}
-        for module_name in expected_modules:
-            if module_name in seen_modules:
-                continue
-            refresh_status.modules[module_name] = "failed"
-            _mark_module_failure(
-                refresh_status,
-                module=module_name,
-                group_name=None,
-                reason="module produced no group agents",
-                state="failed",
+            print(
+                f"  ▶ Running {len(module_entries)} modules "
+                f"(module_concurrency={mod_concurrency}, api_concurrency={api_concurrency})...",
+                file=sys.stderr,
             )
+            module_results = await asyncio.gather(*[_run_module(e) for e in module_entries])
+            seen_modules = {name for name, _ in module_results}
+            for module_name in expected_modules:
+                if module_name in seen_modules:
+                    continue
+                refresh_status.modules[module_name] = "failed"
+                _mark_module_failure(
+                    refresh_status,
+                    module=module_name,
+                    group_name=None,
+                    reason="module produced no group agents",
+                    state="failed",
+                )
 
-        refresh_status.stages["module_docs"] = _aggregate_states(
-            list(refresh_status.modules.values()),
-            skipped_state="skipped",
-        )
+            refresh_status.stages["module_docs"] = _aggregate_states(
+                list(refresh_status.modules.values()),
+                skipped_state="skipped",
+            )
 
         print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
         try:
             git_agent = build_refresh_git_agent(model, workspace)
-            if module_timeout > 0:
-                await asyncio.wait_for(
-                    Runner.run(
-                        git_agent,
-                        "Analyze the project's git history and write your git insights document.",
-                        max_turns=25,
-                    ),
-                    timeout=module_timeout,
-                )
-            else:
-                await Runner.run(
-                    git_agent,
-                    "Analyze the project's git history and write your git insights document.",
-                    max_turns=25,
-                )
+            await _run_with_retry(
+                Runner.run,
+                git_agent,
+                "Analyze the project's git history and write your git insights document.",
+                max_turns=25,
+                timeout=module_timeout,
+                context="Git agent",
+            )
             refresh_status.stages["git_insights"] = "success"
         except Exception as exc:
             print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)
@@ -1750,13 +1894,11 @@ async def _generate_map_md(workspace: Path, model: str) -> str:
 
     async def _run_map_batch(batch: list[str], batch_idx: int) -> str:
         prompt = "Create a map.md from these module knowledge documents:\n" + "\n".join(batch)
-        if map_timeout > 0:
-            result = await asyncio.wait_for(
-                Runner.run(map_agent, prompt),
-                timeout=map_timeout,
-            )
-        else:
-            result = await Runner.run(map_agent, prompt)
+        result = await _run_with_retry(
+            Runner.run, map_agent, prompt,
+            timeout=map_timeout,
+            context=f"Map agent batch {batch_idx}",
+        )
         return str(result.final_output).strip()
 
     if len(batches) == 1:
@@ -1947,13 +2089,11 @@ Output ONLY the Markdown registry. Start with `# Module Registry`.
     )
 
     registry_timeout = float(os.environ.get("AG_REGISTRY_TIMEOUT_SECONDS", "60"))
-    if registry_timeout > 0:
-        result = await asyncio.wait_for(
-            Runner.run(registry_agent, prompt),
-            timeout=registry_timeout,
-        )
-    else:
-        result = await Runner.run(registry_agent, prompt)
+    result = await _run_with_retry(
+        Runner.run, registry_agent, prompt,
+        timeout=registry_timeout,
+        context="Registry agent",
+    )
 
     return result.final_output
 

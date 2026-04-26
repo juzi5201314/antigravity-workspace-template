@@ -73,6 +73,7 @@ def refresh_main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--workspace", default=".", help="Project root (default: cwd)")
     parser.add_argument("--quick", action="store_true", help="Only scan changed files")
+    parser.add_argument("--failed-only", action="store_true", help="Only re-run modules that failed in the previous refresh")
     args = _parse_args(parser, argv)
 
     workspace = Path(args.workspace).resolve()
@@ -82,7 +83,13 @@ def refresh_main(argv: Sequence[str] | None = None) -> None:
         import asyncio
         from antigravity_engine.hub.pipeline import refresh_pipeline
 
-        status = asyncio.run(refresh_pipeline(workspace, args.quick))
+        status = asyncio.run(
+            refresh_pipeline(
+                workspace=workspace,
+                quick=args.quick,
+                failed_only=args.failed_only,
+            )
+        )
         if getattr(status, "exit_code", 0) != 0:
             sys.exit(int(status.exit_code))
     except ValueError as exc:
