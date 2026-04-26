@@ -36,6 +36,12 @@ class Settings(BaseSettings):
 
     # Agent Configuration
     AGENT_NAME: str = "AntigravityAgent"
+    # Stream Configuration
+    STREAM_ENABLED: bool = Field(
+        default=False,
+        description="Enable streaming for LLM responses via litellm. "
+        "Set to true for real-time token streaming.",
+    )
     DEBUG_MODE: bool = False
     PROJECT_ROOT: str = Field(
         default_factory=lambda: os.environ.get(
