@@ -77,18 +77,20 @@ def _import_agent():
         ) from None
 
 
-def _get_reasoning_effort() -> dict:
-    """Get reasoning_effort kwargs from AG_REASONING_EFFORT env var.
+def _get_model_settings() -> dict:
+    """Get Agent model settings from AG_REASONING_EFFORT env var.
 
-    Passes through any value directly to the OpenAI API.
+    ``extra_body`` is the SDK escape hatch for request body fields that are
+    not first-class ``Agent`` constructor arguments.
     Common values: low, medium, high (for o1/o3 models)
     Returns empty dict if env var is not set (for SDK compatibility).
     """
     import os
+    from agents import ModelSettings
 
     effort = os.environ.get("AG_REASONING_EFFORT", "").strip()
     if effort:
-        return {"reasoning_effort": effort}
+        return {"model_settings": ModelSettings(extra_body={"reasoning_effort": effort})}
     return {}
 
 
@@ -176,7 +178,7 @@ def build_refresh_swarm(model: str):
         name="ConventionWriter",
         instructions=_CONVENTION_WRITER_INSTRUCTIONS,
         model=model,
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
     architecture_reviewer = Agent(
@@ -184,7 +186,7 @@ def build_refresh_swarm(model: str):
         instructions=_ARCHITECTURE_REVIEWER_INSTRUCTIONS,
         model=model,
         handoffs=[convention_writer],
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
     scan_analyst = Agent(
@@ -192,7 +194,7 @@ def build_refresh_swarm(model: str):
         instructions=_SCAN_ANALYST_INSTRUCTIONS,
         model=model,
         handoffs=[architecture_reviewer],
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
     return scan_analyst
@@ -404,7 +406,7 @@ def build_map_agent(model: str):
         name="MapAgent",
         instructions=_MAP_AGENT_INSTRUCTIONS,
         model=model,
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
 
@@ -626,7 +628,7 @@ def build_refresh_module_swarm(
             instructions=instructions,
             model=model,
             tools=_wrap_tools(all_tools),
-            **_get_reasoning_effort(),
+            **_get_model_settings(),
         )
         agents_list.append((mod, agent))
 
@@ -726,7 +728,7 @@ def build_refresh_module_swarm_v2(
                 name=f"RefreshModule_{mod}_sub{i}_{group.name}",
                 instructions=instructions,
                 model=model,
-                **_get_reasoning_effort(),
+                **_get_model_settings(),
             )
             group_entries.append((group.name, group, agent))
 
@@ -765,7 +767,7 @@ def build_refresh_git_agent(model: str, workspace: Path):
         instructions=instructions,
         model=model,
         tools=_wrap_tools(all_tools),
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
 
@@ -806,7 +808,7 @@ def build_ask_swarm(
                 "the provided context.  Be concise and cite file paths."
             ),
             model=model,
-            **_get_reasoning_effort(),
+            **_get_model_settings(),
         )
 
     from antigravity_engine.hub.ask_tools import (
@@ -853,7 +855,7 @@ def build_ask_swarm(
             ),
             model=model,
             tools=wrapped + wrapped_mcp,
-            **_get_reasoning_effort(),
+            **_get_model_settings(),
         )
         workers.append(agent)
 
@@ -872,7 +874,7 @@ def build_ask_swarm(
         instructions=_GIT_AGENT_INSTRUCTIONS.format(knowledge=git_knowledge),
         model=model,
         tools=_wrap_tools(git_all_tools) + wrapped_mcp,
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
     workers.append(git_agent)
 
@@ -888,7 +890,7 @@ def build_ask_swarm(
         ),
         model=model,
         tools=_wrap_tools(full_tools) + wrapped_mcp,
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
     workers.append(full_worker)
 
@@ -923,7 +925,7 @@ def build_ask_swarm(
         instructions=router_instructions,
         model=model,
         handoffs=workers,
-        **_get_reasoning_effort(),
+        **_get_model_settings(),
     )
 
     # Star topology: workers hand off back to Router only.

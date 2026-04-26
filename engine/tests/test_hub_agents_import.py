@@ -1,5 +1,6 @@
 """Tests for hub agent ImportError handling and area detection."""
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,56 @@ def test_build_ask_swarm_import_error():
     with patch.dict(sys.modules, {"agents": None}):
         with pytest.raises(ImportError, match="OpenAI Agent SDK not found"):
             build_ask_swarm("test-model")
+
+
+def test_reasoning_effort_is_passed_through_model_settings_extra_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AG_REASONING_EFFORT is sent through ModelSettings.extra_body."""
+    from antigravity_engine.hub.agents import build_refresh_swarm
+
+    class ModelSettings:
+        def __init__(self, extra_body: dict[str, str] | None = None) -> None:
+            self.extra_body = extra_body
+
+    class Agent:
+        instances: list["Agent"] = []
+
+        def __init__(
+            self,
+            name: str,
+            instructions: str,
+            model: str,
+            handoffs: list["Agent"] | None = None,
+            model_settings: ModelSettings | None = None,
+        ) -> None:
+            self.name = name
+            self.instructions = instructions
+            self.model = model
+            self.handoffs = handoffs or []
+            self.model_settings = model_settings
+            Agent.instances.append(self)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "agents",
+        types.SimpleNamespace(Agent=Agent, ModelSettings=ModelSettings),
+    )
+    monkeypatch.setenv("AG_REASONING_EFFORT", "high")
+
+    swarm = build_refresh_swarm("test-model")
+
+    assert swarm.name == "ScanAnalyst"
+    assert [agent.name for agent in Agent.instances] == [
+        "ConventionWriter",
+        "ArchitectureReviewer",
+        "ScanAnalyst",
+    ]
+    assert [agent.model_settings.extra_body for agent in Agent.instances] == [
+        {"reasoning_effort": "high"},
+        {"reasoning_effort": "high"},
+        {"reasoning_effort": "high"},
+    ]
 
 
 def test_detect_areas_finds_source_dirs(tmp_path: Path) -> None:
