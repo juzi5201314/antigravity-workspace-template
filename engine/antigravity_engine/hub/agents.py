@@ -633,6 +633,7 @@ Rules:
 def build_refresh_module_swarm_v2(
     model: str,
     workspace: Path,
+    modules_filter: list[str] | None = None,
 ) -> list:
     """Build RefreshModuleAgents using smart functional grouping.
 
@@ -646,6 +647,8 @@ def build_refresh_module_swarm_v2(
     Args:
         model: Model identifier string.
         workspace: Project root directory.
+        modules_filter: Optional list of module names to process.
+            When provided, only these modules are included.
 
     Returns:
         List of ``(module_name, group_entries)`` tuples where each
@@ -661,6 +664,8 @@ def build_refresh_module_swarm_v2(
     )
 
     modules = detect_modules(workspace)
+    if modules_filter is not None:
+        modules = [m for m in modules if m in modules_filter]
     result: list = []
 
     for mod in modules:

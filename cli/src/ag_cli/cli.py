@@ -244,12 +244,15 @@ def ask_cmd(
 def refresh_cmd(
     workspace: str = typer.Option(".", "--workspace", "-w", help="Project directory."),
     quick: bool = typer.Option(False, "--quick", help="Only scan changed files."),
+    failed_only: bool = typer.Option(False, "--failed-only", help="Only re-run modules that failed in the previous refresh."),
 ) -> None:
     """Refresh project context in .antigravity/ (requires LLM)."""
     workspace_path = Path(workspace).resolve()
     args: list[str] = ["refresh"]
     if quick:
         args.append("--quick")
+    if failed_only:
+        args.append("--failed-only")
     code = _run_hub(workspace_path, *args)
     raise typer.Exit(code=code)
 

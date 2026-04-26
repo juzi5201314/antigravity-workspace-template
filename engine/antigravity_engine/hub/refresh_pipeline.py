@@ -140,12 +140,14 @@ async def _run_with_retry(
 
 
 
-async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatus:
+async def refresh_pipeline(workspace: Path, quick: bool = False, failed_only: bool = False) -> RefreshStatus:
     """Scan project and update .antigravity/conventions.md.
 
     Args:
         workspace: Project root directory.
         quick: If True, only scan files changed since last refresh.
+        failed_only: If True, only re-run modules that failed or were
+            partial in the previous refresh.
 
     Returns:
         Structured refresh status, including stage and module health.
@@ -314,8 +316,43 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         refresh_status.stages["knowledge_graph"] = "skipped"
         refresh_status.stages["indexes"] = "skipped"
 
+    modules_filter: list[str] | None = None
+    if failed_only:
+        status_path = ag_dir / "status.json"
+        if status_path.is_file():
+            try:
+                prev_status_raw = json.loads(status_path.read_text(encoding="utf-8"))
+                prev_modules = prev_status_raw.get("modules", {})
+                modules_filter = [
+                    mod for mod, state in prev_modules.items()
+                    if state in ("failed", "partial")
+                ]
+                if modules_filter:
+                    print(
+                        f"[7/8] Failed-only mode: re-running {len(modules_filter)} "
+                        f"failed/partial modules...",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "[7/8] Failed-only mode: no failed/partial modules found. "
+                        "Skipping module agents.",
+                        file=sys.stderr,
+                    )
+            except Exception as exc:
+                print(
+                    f"  ⚠ Failed to load previous status: {exc}. "
+                    "Running all modules.",
+                    file=sys.stderr,
+                )
+        else:
+            print(
+                "[7/8] Failed-only mode: no previous status found. "
+                "Running all modules.",
+                file=sys.stderr,
+            )
+
     if not refresh_scan_only:
-        print("[7/8] Module agents learning codebase...", file=sys.stderr)
         from antigravity_engine.hub.agents import (
             build_refresh_module_swarm_v2,
             build_refresh_git_agent,
@@ -329,146 +366,157 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
                 "OpenAI Agent SDK not found. Install: pip install antigravity-engine"
             ) from None
 
-        module_entries = build_refresh_module_swarm_v2(model, workspace)
-        expected_modules = detect_modules(workspace)
-        module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
-        mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
-        _mod_sem = asyncio.Semaphore(mod_concurrency)
-        # Global API call semaphore: limits total concurrent LLM calls
-        # across ALL modules and groups to avoid rate-limiting.
-        api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
-        _api_sem = asyncio.Semaphore(api_concurrency)
-        agents_dir = ag_dir / "agents"
-        agents_dir.mkdir(parents=True, exist_ok=True)
-        # Keep legacy modules dir for backward compat (will be removed in Phase 5)
-        modules_dir = ag_dir / "modules"
-        modules_dir.mkdir(parents=True, exist_ok=True)
+        # Skip module agents when failed-only mode has no modules to process
+        if modules_filter is not None and not modules_filter:
+            print("[7/8] No failed/partial modules to re-run. Skipping module agents.", file=sys.stderr)
+            refresh_status.stages["module_docs"] = "skipped"
+        else:
+            print("[7/8] Module agents learning codebase...", file=sys.stderr)
 
-        async def _run_module(entry: tuple) -> tuple[str, str]:
-            """Run one module's group agents and persist agent.md artifacts.
-
-            For single-group modules: writes ``agents/{module}.md``.
-            For multi-group modules: writes ``agents/{module}/group_N.md``
-            (one per group, no merging).
-
-            Args:
-                entry: Tuple of module name and group agent entries.
-
-            Returns:
-                Module identifier and resulting health state.
-            """
-            async with _mod_sem:
-                mod_name, group_entries = entry
-                num_groups = len(group_entries)
-                print(
-                    f"  → RefreshModule_{mod_name} ({num_groups} groups)...",
-                    file=sys.stderr,
-                )
-
-                async def _run_sub(
-                    group_name: str,
-                    group,
-                    sagent: object,
-                ) -> tuple[str, str | None, str | None]:
-                    """Run one group agent and collect its Markdown output.
-
-                    Args:
-                        group_name: Group identifier within the module.
-                        group: Module grouping object with pre-loaded files.
-                        sagent: Agent instance for the group.
-
-                    Returns:
-                        Tuple of group name, Markdown output, and optional
-                        failure reason.
-                    """
-                    try:
-                        async with _api_sem:
-                            res = await _run_with_retry(
-                                Runner.run,
-                                sagent,
-                                "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
-                                max_turns=3,
-                                timeout=module_timeout,
-                                context=f"{mod_name}/{group_name}",
-                            )
-                        md_output = str(res.final_output).strip()
-                        if not md_output:
-                            return group_name, None, "empty output"
-                        print(f"    ✓ {mod_name}/{group_name}", file=sys.stderr)
-                        return group_name, md_output, None
-                    except Exception as exc:
-                        failure_reason = str(exc)
-                        print(f"    ⚠ {mod_name}/{group_name} failed: {failure_reason}", file=sys.stderr)
-                        # Build a minimal fallback from file listing
-                        fallback = _build_agent_md_fallback(mod_name, group_name, group)
-                        return group_name, fallback, failure_reason
-
-                sub_results = await asyncio.gather(
-                    *[_run_sub(gn, grp, sa) for gn, grp, sa in group_entries]
-                )
-
-                successes: list[tuple[str, str]] = []
-                for group_name, md_output, failure_reason in sub_results:
-                    if md_output is None:
-                        _mark_module_failure(
-                            refresh_status,
-                            module=mod_name,
-                            group_name=group_name,
-                            reason=failure_reason or "group returned no output",
-                            state="failed",
-                        )
-                        continue
-                    successes.append((group_name, md_output))
-                    if failure_reason:
-                        _mark_module_failure(
-                            refresh_status,
-                            module=mod_name,
-                            group_name=group_name,
-                            reason=failure_reason,
-                            state="partial",
-                        )
-
-                if not successes:
-                    refresh_status.modules[mod_name] = "failed"
-                    print(f"  ⚠ RefreshModule_{mod_name} produced no output", file=sys.stderr)
-                    return mod_name, "failed"
-
-                # Write agent.md artifacts
-                _write_agent_md_artifacts(
-                    agents_dir=agents_dir,
-                    module=mod_name,
-                    group_outputs=successes,
-                )
-                module_state = "success"
-                if any(reason is not None for _, _, reason in sub_results):
-                    module_state = "partial"
-                refresh_status.modules[mod_name] = module_state
-                print(f"  ✓ RefreshModule_{mod_name} done ({module_state})", file=sys.stderr)
-                return mod_name, module_state
-
-        print(
-            f"  ▶ Running {len(module_entries)} modules "
-            f"(module_concurrency={mod_concurrency}, api_concurrency={api_concurrency})...",
-            file=sys.stderr,
-        )
-        module_results = await asyncio.gather(*[_run_module(e) for e in module_entries])
-        seen_modules = {name for name, _ in module_results}
-        for module_name in expected_modules:
-            if module_name in seen_modules:
-                continue
-            refresh_status.modules[module_name] = "failed"
-            _mark_module_failure(
-                refresh_status,
-                module=module_name,
-                group_name=None,
-                reason="module produced no group agents",
-                state="failed",
+            module_entries = build_refresh_module_swarm_v2(
+                model, workspace, modules_filter=modules_filter
             )
+            expected_modules = detect_modules(workspace)
+            if modules_filter is not None:
+                expected_modules = [m for m in expected_modules if m in modules_filter]
+            module_timeout = float(os.environ.get("AG_MODULE_AGENT_TIMEOUT_SECONDS", "45"))
+            mod_concurrency = int(os.environ.get("AG_REFRESH_CONCURRENCY", "8"))
+            _mod_sem = asyncio.Semaphore(mod_concurrency)
+            # Global API call semaphore: limits total concurrent LLM calls
+            # across ALL modules and groups to avoid rate-limiting.
+            api_concurrency = int(os.environ.get("AG_API_CONCURRENCY", "5"))
+            _api_sem = asyncio.Semaphore(api_concurrency)
+            agents_dir = ag_dir / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            # Keep legacy modules dir for backward compat (will be removed in Phase 5)
+            modules_dir = ag_dir / "modules"
+            modules_dir.mkdir(parents=True, exist_ok=True)
 
-        refresh_status.stages["module_docs"] = _aggregate_states(
-            list(refresh_status.modules.values()),
-            skipped_state="skipped",
-        )
+            async def _run_module(entry: tuple) -> tuple[str, str]:
+                """Run one module's group agents and persist agent.md artifacts.
+
+                For single-group modules: writes ``agents/{module}.md``.
+                For multi-group modules: writes ``agents/{module}/group_N.md``
+                (one per group, no merging).
+
+                Args:
+                    entry: Tuple of module name and group agent entries.
+
+                Returns:
+                    Module identifier and resulting health state.
+                """
+                async with _mod_sem:
+                    mod_name, group_entries = entry
+                    num_groups = len(group_entries)
+                    print(
+                        f"  → RefreshModule_{mod_name} ({num_groups} groups)...",
+                        file=sys.stderr,
+                    )
+
+                    async def _run_sub(
+                        group_name: str,
+                        group,
+                        sagent: object,
+                    ) -> tuple[str, str | None, str | None]:
+                        """Run one group agent and collect its Markdown output.
+
+                        Args:
+                            group_name: Group identifier within the module.
+                            group: Module grouping object with pre-loaded files.
+                            sagent: Agent instance for the group.
+
+                        Returns:
+                            Tuple of group name, Markdown output, and optional
+                            failure reason.
+                        """
+                        try:
+                            async with _api_sem:
+                                res = await _run_with_retry(
+                                    Runner.run,
+                                    sagent,
+                                    "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
+                                    max_turns=3,
+                                    timeout=module_timeout,
+                                    context=f"{mod_name}/{group_name}",
+                                )
+                            md_output = str(res.final_output).strip()
+                            if not md_output:
+                                return group_name, None, "empty output"
+                            print(f"    ✓ {mod_name}/{group_name}", file=sys.stderr)
+                            return group_name, md_output, None
+                        except Exception as exc:
+                            failure_reason = str(exc)
+                            print(f"    ⚠ {mod_name}/{group_name} failed: {failure_reason}", file=sys.stderr)
+                            # Build a minimal fallback from file listing
+                            fallback = _build_agent_md_fallback(mod_name, group_name, group)
+                            return group_name, fallback, failure_reason
+
+                    sub_results = await asyncio.gather(
+                        *[_run_sub(gn, grp, sa) for gn, grp, sa in group_entries]
+                    )
+
+                    successes: list[tuple[str, str]] = []
+                    for group_name, md_output, failure_reason in sub_results:
+                        if md_output is None:
+                            _mark_module_failure(
+                                refresh_status,
+                                module=mod_name,
+                                group_name=group_name,
+                                reason=failure_reason or "group returned no output",
+                                state="failed",
+                            )
+                            continue
+                        successes.append((group_name, md_output))
+                        if failure_reason:
+                            _mark_module_failure(
+                                refresh_status,
+                                module=mod_name,
+                                group_name=group_name,
+                                reason=failure_reason,
+                                state="partial",
+                            )
+
+                    if not successes:
+                        refresh_status.modules[mod_name] = "failed"
+                        print(f"  ⚠ RefreshModule_{mod_name} produced no output", file=sys.stderr)
+                        return mod_name, "failed"
+
+                    # Write agent.md artifacts
+                    _write_agent_md_artifacts(
+                        agents_dir=agents_dir,
+                        module=mod_name,
+                        group_outputs=successes,
+                    )
+                    module_state = "success"
+                    if any(reason is not None for _, _, reason in sub_results):
+                        module_state = "partial"
+                    refresh_status.modules[mod_name] = module_state
+                    print(f"  ✓ RefreshModule_{mod_name} done ({module_state})", file=sys.stderr)
+                    return mod_name, module_state
+
+            print(
+                f"  ▶ Running {len(module_entries)} modules "
+                f"(module_concurrency={mod_concurrency}, api_concurrency={api_concurrency})...",
+                file=sys.stderr,
+            )
+            module_results = await asyncio.gather(*[_run_module(e) for e in module_entries])
+            seen_modules = {name for name, _ in module_results}
+            for module_name in expected_modules:
+                if module_name in seen_modules:
+                    continue
+                refresh_status.modules[module_name] = "failed"
+                _mark_module_failure(
+                    refresh_status,
+                    module=module_name,
+                    group_name=None,
+                    reason="module produced no group agents",
+                    state="failed",
+                )
+
+            refresh_status.stages["module_docs"] = _aggregate_states(
+                list(refresh_status.modules.values()),
+                skipped_state="skipped",
+            )
 
         print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
         try:
