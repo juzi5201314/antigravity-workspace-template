@@ -30,6 +30,110 @@ from antigravity_engine.hub.contracts import (
 
 logger = logging.getLogger(__name__)
 
+def _get_retry_config(max_retries: int | None = None, base_delay: float | None = None) -> tuple[int, float]:
+    """Read retry configuration from environment variables.
+
+    Args:
+        max_retries: Override for max retries (uses env var if None).
+        base_delay: Override for base delay in seconds (uses env var if None).
+
+    Returns:
+        Tuple of (max_retries, base_delay).
+    """
+    if max_retries is None:
+        try:
+            max_retries = int(os.environ.get("AG_REFRESH_RETRY_COUNT", "3"))
+        except (ValueError, TypeError):
+            max_retries = 3
+    if base_delay is None:
+        try:
+            base_delay = float(os.environ.get("AG_REFRESH_RETRY_DELAY", "1.0"))
+        except (ValueError, TypeError):
+            base_delay = 1.0
+    return max_retries, base_delay
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Check if an exception qualifies for retry.
+
+    Retries on timeout, network errors, rate limits, and 5xx server errors.
+
+    Args:
+        exc: The exception to inspect.
+
+    Returns:
+        True if the error is retryable.
+    """
+    msg = str(exc).lower()
+    retryable_keywords = (
+        "timeout",
+        "gateway time-out",
+        "504",
+        "connection",
+        "network",
+        "unreachable",
+        "refused",
+        "rate limit",
+        "ratelimit",
+        "429",
+        "502",
+        "503",
+        "500",
+        "service unavailable",
+        "bad gateway",
+        "internal server error",
+    )
+    return any(kw in msg for kw in retryable_keywords)
+
+
+async def _run_with_retry(
+    coro_fn,
+    *args,
+    max_retries: int | None = None,
+    base_delay: float | None = None,
+    timeout: float | None = None,
+    context: str = "",
+    **kwargs,
+):
+    """Run an async coroutine with retry and exponential backoff.
+
+    Args:
+        coro_fn: Async callable to execute.
+        *args: Positional arguments for ``coro_fn``.
+        max_retries: Maximum retry attempts (overrides env var).
+        base_delay: Initial delay between retries in seconds (overrides env var).
+        timeout: Per-attempt timeout in seconds (None or <=0 for no timeout).
+        context: Human-readable context string for logging.
+        **kwargs: Keyword arguments for ``coro_fn``.
+
+    Returns:
+        Result of ``coro_fn``.
+
+    Raises:
+        The last exception if all retries are exhausted.
+    """
+    max_retries, base_delay = _get_retry_config(max_retries, base_delay)
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            if timeout is not None and timeout > 0:
+                return await asyncio.wait_for(coro_fn(*args, **kwargs), timeout=timeout)
+            return await coro_fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt == max_retries or not _is_retryable_error(exc):
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            label = f" ({context})" if context else ""
+            print(
+                f"  ⚠ Attempt {attempt} failed{label}: {exc}. {delay}s后重试...",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc
+
+
+
 
 async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatus:
     """Scan project and update .antigravity/conventions.md.
@@ -141,10 +245,11 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
 
         refresh_timeout = float(os.environ.get("AG_REFRESH_AGENT_TIMEOUT_SECONDS", "90"))
         try:
-            if refresh_timeout > 0:
-                result = await asyncio.wait_for(Runner.run(agent, prompt), timeout=refresh_timeout)
-            else:
-                result = await Runner.run(agent, prompt)
+            result = await _run_with_retry(
+                Runner.run, agent, prompt,
+                timeout=refresh_timeout,
+                context="Conventions swarm",
+            )
             conventions_content = result.final_output
             refresh_status.stages["conventions"] = "success"
         except Exception as exc:
@@ -273,21 +378,14 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
                     """
                     try:
                         async with _api_sem:
-                            if module_timeout > 0:
-                                res = await asyncio.wait_for(
-                                    Runner.run(
-                                        sagent,
-                                        "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
-                                        max_turns=3,
-                                    ),
-                                    timeout=module_timeout,
-                                )
-                            else:
-                                res = await Runner.run(
-                                    sagent,
-                                    "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
-                                    max_turns=3,
-                                )
+                            res = await _run_with_retry(
+                                Runner.run,
+                                sagent,
+                                "Analyze the pre-loaded source code and produce a comprehensive Markdown knowledge document.",
+                                max_turns=3,
+                                timeout=module_timeout,
+                                context=f"{mod_name}/{group_name}",
+                            )
                         md_output = str(res.final_output).strip()
                         if not md_output:
                             return group_name, None, "empty output"
@@ -370,21 +468,14 @@ async def refresh_pipeline(workspace: Path, quick: bool = False) -> RefreshStatu
         print("  → RefreshGitAgent analyzing git history...", file=sys.stderr)
         try:
             git_agent = build_refresh_git_agent(model, workspace)
-            if module_timeout > 0:
-                await asyncio.wait_for(
-                    Runner.run(
-                        git_agent,
-                        "Analyze the project's git history and write your git insights document.",
-                        max_turns=25,
-                    ),
-                    timeout=module_timeout,
-                )
-            else:
-                await Runner.run(
-                    git_agent,
-                    "Analyze the project's git history and write your git insights document.",
-                    max_turns=25,
-                )
+            await _run_with_retry(
+                Runner.run,
+                git_agent,
+                "Analyze the project's git history and write your git insights document.",
+                max_turns=25,
+                timeout=module_timeout,
+                context="Git agent",
+            )
             refresh_status.stages["git_insights"] = "success"
         except Exception as exc:
             print(f"  ⚠ RefreshGitAgent failed: {exc}", file=sys.stderr)
@@ -1750,13 +1841,11 @@ async def _generate_map_md(workspace: Path, model: str) -> str:
 
     async def _run_map_batch(batch: list[str], batch_idx: int) -> str:
         prompt = "Create a map.md from these module knowledge documents:\n" + "\n".join(batch)
-        if map_timeout > 0:
-            result = await asyncio.wait_for(
-                Runner.run(map_agent, prompt),
-                timeout=map_timeout,
-            )
-        else:
-            result = await Runner.run(map_agent, prompt)
+        result = await _run_with_retry(
+            Runner.run, map_agent, prompt,
+            timeout=map_timeout,
+            context=f"Map agent batch {batch_idx}",
+        )
         return str(result.final_output).strip()
 
     if len(batches) == 1:
@@ -1947,13 +2036,11 @@ Output ONLY the Markdown registry. Start with `# Module Registry`.
     )
 
     registry_timeout = float(os.environ.get("AG_REGISTRY_TIMEOUT_SECONDS", "60"))
-    if registry_timeout > 0:
-        result = await asyncio.wait_for(
-            Runner.run(registry_agent, prompt),
-            timeout=registry_timeout,
-        )
-    else:
-        result = await Runner.run(registry_agent, prompt)
+    result = await _run_with_retry(
+        Runner.run, registry_agent, prompt,
+        timeout=registry_timeout,
+        context="Registry agent",
+    )
 
     return result.final_output
 
