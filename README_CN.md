@@ -2,9 +2,9 @@
 
 <img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
 
-# AI Workspace Template
+# Antigravity 工作区模板 — Claude Code / Codex / Cursor 起手套件
 
-### 面向任意代码库的多智能体知识引擎。
+### 多智能体知识引擎 + MCP 服务。把任意代码库变成可问答的 AI 工作区。支持 Claude Code、Codex CLI、Cursor、Windsurf、Gemini CLI。
 
 `ag-refresh` 构建知识库。`ag-ask` 回答问题。任意 LLM，任意 IDE。
 

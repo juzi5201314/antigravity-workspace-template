@@ -2,9 +2,9 @@
 
 <img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
 
-# AI Workspace Template
+# Antigravity — Workspace Template for Claude Code, Codex CLI & Cursor
 
-### Multi-agent knowledge engine for any codebase.
+### Multi-agent knowledge engine + MCP server that turns any repo into a queryable AI assistant. Works with Claude Code, Codex CLI, Cursor, Windsurf, and Gemini CLI.
 
 `ag-refresh` builds a knowledge base. `ag-ask` answers questions. Any LLM, any IDE.
 
