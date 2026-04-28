@@ -2,9 +2,9 @@
 
 <img src="docs/assets/logo.png" alt="Antigravity Workspace" width="200"/>
 
-# AI Workspace Template
+# Antigravity — Plantilla de Workspace para Claude Code, Codex CLI y Cursor
 
-### Motor de conocimiento multi-agente para cualquier codebase.
+### Motor de conocimiento multi-agente + servidor MCP que convierte cualquier repositorio en un asistente de IA consultable. Compatible con Claude Code, Codex CLI, Cursor, Windsurf y Gemini CLI.
 
 `ag-refresh` construye la base de conocimiento. `ag-ask` responde preguntas. Cualquier LLM, cualquier IDE.
 
